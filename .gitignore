@@ -1,0 +1,23 @@
+# Go
+server/server
+server/uploads/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+admin/node_modules/
+admin/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local

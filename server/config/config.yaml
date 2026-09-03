@@ -1,0 +1,29 @@
+server:
+  port: 8080
+  mode: debug
+
+database:
+  host: host.docker.internal
+  port: 5432
+  user: postgres
+  password: postgres
+  dbname: jiangrun
+  sslmode: disable
+
+jwt:
+  secret: jiangrun-secret-key-change-in-production
+  expire_hour: 24
+
+storage:
+  upload_dir: ./uploads
+  max_image_size: 10
+  max_video_size: 500
+  chunk_size: 8          # 大文件分片大小（MB），断点续传按此切片
+  provider: local        # local | oss（本地 或 阿里云对象存储）
+  oss:
+    bucket: your-bucket-name
+    region: oss-cn-hangzhou
+    endpoint: oss-cn-hangzhou.aliyuncs.com
+    access_key_id: ""
+    access_key_secret: ""
+    public_url: ""
