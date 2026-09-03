@@ -45,7 +45,7 @@ function Init-Env {
     }
 
     $dbpass    = Get-RandomHex 16
-    $adminpass = Get-RandomHex 8
+	$adminpass = "Jr9-$(Get-RandomHex 8)"
     $jwt       = Get-RandomHex 32
 
     $content = @"
@@ -58,9 +58,13 @@ POSTGRES_DB=jiangrun
 JWT_SECRET=$jwt
 ADMIN_INITIAL_PASSWORD=$adminpass
 SERVER_MODE=release
+CORS_ALLOWED_ORIGINS=https://jiangrun.net,https://www.jiangrun.net
 
-# 对外 HTTP 端口
+# 域名与 TLS
+DOMAIN=jiangrun.net
+TLS_CERT_DIR=./certs
 HTTP_PORT=80
+HTTPS_PORT=443
 
 # 前端反代到后端的地址（容器内部服务名，一般无需修改）
 API_URL=http://server:8080
@@ -81,17 +85,19 @@ API_URL=http://server:8080
 
 # ---------- 等待就绪 ----------
 function Wait-Ready {
-    $hp = (Get-Content "$DeployDir\.env" | Select-String '^HTTP_PORT=' | ForEach-Object { ($_ -split '=')[1] })
-    if (-not $hp) { $hp = "80" }
+	$hp = (Get-Content "$DeployDir\.env" | Select-String '^HTTPS_PORT=' | ForEach-Object { ($_ -split '=')[1] })
+	if (-not $hp) { $hp = "443" }
     Info "等待服务就绪（经 Nginx 检测 $hp 端口）..."
     for ($i = 0; $i -lt 75; $i++) {
         try {
-            Invoke-RestMethod -Uri "http://127.0.0.1:$hp/api/v1/settings" -TimeoutSec 2 -ErrorAction Stop | Out-Null
-            Ok "服务已就绪"
-            return
+			& curl.exe -ksf --max-time 2 "https://127.0.0.1:$hp/api/v1/settings" *> $null
+			if ($LASTEXITCODE -eq 0) {
+				Ok "服务已就绪"
+				return
+			}
         } catch {
-            Start-Sleep -Seconds 2
         }
+		Start-Sleep -Seconds 2
     }
     Warn "服务未在 150 秒内就绪，请执行 deploy.ps1 logs server 查看日志"
 }
@@ -104,39 +110,65 @@ function Check-Env {
     }
     $content = Get-Content ".env" -Raw
     $ok = $true
-    if ($content -match '^JWT_SECRET=\s*$' -or $content -match '^JWT_SECRET=jiangrun-secret-key-change-in-production$') {
+	$jwtLine = ($content -split "`n" | Where-Object { $_ -match '^JWT_SECRET=' } | Select-Object -First 1)
+	$jwtValue = if ($jwtLine) { ($jwtLine -split '=', 2)[1].Trim() } else { "" }
+    if ($jwtValue.Length -lt 32 -or $jwtValue -eq 'jiangrun-secret-key-change-in-production') {
         Err "JWT_SECRET 未设置或仍为默认值，请运行 deploy.ps1 init 重新生成"
         $ok = $false
     }
-    if ($content -match '^POSTGRES_PASSWORD=postgres$' -or $content -match '^POSTGRES_PASSWORD=change-me-to-a-random-password$') {
+	$dbLine = ($content -split "`n" | Where-Object { $_ -match '^POSTGRES_PASSWORD=' } | Select-Object -First 1)
+	$dbValue = if ($dbLine) { ($dbLine -split '=', 2)[1].Trim() } else { "" }
+    if (-not $dbValue -or $dbValue -eq 'postgres' -or $dbValue -eq 'change-me-to-a-random-password') {
         Err "POSTGRES_PASSWORD 未设置或仍为默认值"
         $ok = $false
     }
-    if ($content -match '^ADMIN_INITIAL_PASSWORD=admin123$' -or $content -notmatch '^ADMIN_INITIAL_PASSWORD=.+') {
-        Warn "ADMIN_INITIAL_PASSWORD 未满足随机值建议"
+	$adminLine = ($content -split "`n" | Where-Object { $_ -match '^ADMIN_INITIAL_PASSWORD=' } | Select-Object -First 1)
+	$adminValue = if ($adminLine) { ($adminLine -split '=', 2)[1].Trim() } else { "" }
+    if ($adminValue.Length -lt 12 -or $adminValue.Length -gt 72 -or $adminValue -notmatch '[A-Za-z]' -or $adminValue -notmatch '[0-9]') {
+		Err "ADMIN_INITIAL_PASSWORD 必须为12-72位并同时包含字母和数字"
+		$ok = $false
     }
+	$domainLine = ($content -split "`n" | Where-Object { $_ -match '^DOMAIN=' } | Select-Object -First 1)
+	$domain = if ($domainLine) { ($domainLine -split '=', 2)[1].Trim() } else { "" }
+	$corsLine = ($content -split "`n" | Where-Object { $_ -match '^CORS_ALLOWED_ORIGINS=' } | Select-Object -First 1)
+	$corsValue = if ($corsLine) { ($corsLine -split '=', 2)[1].Trim() } else { "" }
+	if ($domain -ne 'jiangrun.net') {
+		Err "DOMAIN 必须与当前 Nginx 配置一致：jiangrun.net"
+		$ok = $false
+	}
+	if (-not $corsValue -or $corsValue.Contains('*') -or -not $corsValue.StartsWith('https://')) {
+		Err "CORS_ALLOWED_ORIGINS 必须是明确的 HTTPS 域名且不能包含通配符"
+		$ok = $false
+	}
+	$certDirLine = ($content -split "`n" | Where-Object { $_ -match '^TLS_CERT_DIR=' } | Select-Object -First 1)
+	$certDir = if ($certDirLine) { ($certDirLine -split '=', 2)[1].Trim() } else { "" }
+	if (-not $certDir -or -not (Test-Path (Join-Path $certDir "fullchain.pem")) -or -not (Test-Path (Join-Path $certDir "privkey.pem"))) {
+		Err "TLS 证书缺失：请在 TLS_CERT_DIR 放置 fullchain.pem 和 privkey.pem"
+		$ok = $false
+	}
     if ($ok) { Ok ".env 密钥检查通过" }
     if (-not $ok) { exit 1 }
 }
 
 function Show-Summary {
+	$domain = (Get-Content "$DeployDir\.env" | Select-String '^DOMAIN=' | ForEach-Object { ($_ -split '=', 2)[1] })
+	if (-not $domain) { $domain = "jiangrun.net" }
     Write-Host ""
     Write-Host "=========================================================="
     Write-Host "  部署完成，访问地址："
-    Write-Host "    前台官网:  http://localhost/"
-    Write-Host "    后台管理:  http://localhost:3001"
-    Write-Host "  （若部署在远程服务器，请将 localhost 替换为服务器 IP）"
+	Write-Host "    前台官网:  https://$domain/"
+	Write-Host "    后台管理:  https://$domain/admin/"
+	Write-Host "  后台没有独立公网端口，仅能通过 HTTPS 入口访问。"
     Write-Host "=========================================================="
     Write-Host ""
 }
 
 # 启动成功后用默认浏览器打开前台与后台（Windows）
 function Open-Browsers {
-    $hp = (Get-Content "$DeployDir\.env" | Select-String '^HTTP_PORT=' | ForEach-Object { ($_ -split '=')[1] })
-    if (-not $hp) { $hp = "80" }
-    $site = "http://localhost"
-    if ($hp -ne "80") { $site = "http://localhost:$hp" }
-    $admin = "http://localhost:3001"
+	$domain = (Get-Content "$DeployDir\.env" | Select-String '^DOMAIN=' | ForEach-Object { ($_ -split '=', 2)[1] })
+	if (-not $domain) { $domain = "jiangrun.net" }
+	$site = "https://$domain/"
+	$admin = "https://$domain/admin/"
     Info "正在用浏览器打开前台与后台..."
     Start-Process $site
     Start-Sleep -Seconds 1

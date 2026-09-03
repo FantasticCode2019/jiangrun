@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
+	"strings"
 
 	"jiangrun-server/models"
 	"jiangrun-server/pkg/response"
@@ -11,20 +13,20 @@ import (
 )
 
 type CaseRequest struct {
-	Title       string               `json:"title" binding:"required"`
-	Slug        string               `json:"slug"`
-	CoverImage  string               `json:"cover_image"`
-	Blocks      []models.CaseBlock   `json:"blocks"`
-	Images      []string             `json:"images"`
-	Description string               `json:"description"`
-	Content     string               `json:"content"`
-	CategoryID  *uint                `json:"category_id"`
-	Style       string               `json:"style"`
-	Location    string               `json:"location"`
-	Area        string               `json:"area"`
-	IsFeatured  bool                 `json:"is_featured"`
-	SortOrder   int                  `json:"sort_order"`
-	Status      int                  `json:"status"`
+	Title       string             `json:"title" binding:"required,max=200"`
+	Slug        string             `json:"slug" binding:"max=200"`
+	CoverImage  string             `json:"cover_image" binding:"max=500"`
+	Blocks      []models.CaseBlock `json:"blocks"`
+	Images      []string           `json:"images"`
+	Description string             `json:"description" binding:"max=4000"`
+	Content     string             `json:"content"`
+	CategoryID  *uint              `json:"category_id"`
+	Style       string             `json:"style" binding:"max=50"`
+	Location    string             `json:"location" binding:"max=200"`
+	Area        string             `json:"area" binding:"max=50"`
+	IsFeatured  bool               `json:"is_featured"`
+	SortOrder   int                `json:"sort_order"`
+	Status      int                `json:"status"`
 }
 
 // GetCases 获取案例列表 (公开)
@@ -55,14 +57,20 @@ func GetCases(c *gin.Context) {
 	}
 
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		response.ServerError(c, "读取案例失败")
+		return
+	}
 
 	var cases []models.Case
-	query.Order("sort_order ASC, id DESC").
+	if err := query.Order("sort_order ASC, id DESC").
 		Offset((page - 1) * size).
 		Limit(size).
 		Preload("Category").
-		Find(&cases)
+		Find(&cases).Error; err != nil {
+		response.ServerError(c, "读取案例失败")
+		return
+	}
 
 	response.Page(c, cases, total, page, size)
 }
@@ -76,6 +84,7 @@ func GetCase(c *gin.Context) {
 		response.NotFound(c, "案例不存在")
 		return
 	}
+	sanitizeCaseOutput(&caseItem)
 
 	response.Success(c, caseItem)
 }
@@ -83,13 +92,19 @@ func GetCase(c *gin.Context) {
 // GetFeaturedCases 获取推荐案例
 func GetFeaturedCases(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "6"))
+	if limit < 1 || limit > 20 {
+		limit = 6
+	}
 
 	var cases []models.Case
-	models.DB.Where("is_featured = ? AND status = ?", true, 1).
+	if err := models.DB.Where("is_featured = ? AND status = ?", true, 1).
 		Order("sort_order ASC, id DESC").
 		Limit(limit).
 		Preload("Category").
-		Find(&cases)
+		Find(&cases).Error; err != nil {
+		response.ServerError(c, "读取案例失败")
+		return
+	}
 
 	response.Success(c, cases)
 }
@@ -104,6 +119,13 @@ func AdminGetCases(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	if len([]rune(keyword)) > 100 {
+		response.BadRequest(c, "搜索词过长")
+		return
+	}
 
 	query := models.DB.Model(&models.Case{})
 
@@ -115,14 +137,20 @@ func AdminGetCases(c *gin.Context) {
 	}
 
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		response.ServerError(c, "读取案例失败")
+		return
+	}
 
 	var cases []models.Case
-	query.Order("sort_order ASC, id DESC").
+	if err := query.Order("sort_order ASC, id DESC").
 		Offset((page - 1) * size).
 		Limit(size).
 		Preload("Category").
-		Find(&cases)
+		Find(&cases).Error; err != nil {
+		response.ServerError(c, "读取案例失败")
+		return
+	}
 
 	response.Page(c, cases, total, page, size)
 }
@@ -145,6 +173,10 @@ func AdminCreateCase(c *gin.Context) {
 	var req CaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "参数错误: "+err.Error())
+		return
+	}
+	if err := prepareCaseRequest(&req); err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -183,9 +215,11 @@ func AdminCreateCase(c *gin.Context) {
 		Status:      req.Status,
 	}
 
-	if caseItem.Slug == "" {
-		caseItem.Slug = models.GenerateUniqueSlug(models.DB, req.Title, "case", &models.Case{}, 0)
+	slugBase := req.Slug
+	if slugBase == "" {
+		slugBase = req.Title
 	}
+	caseItem.Slug = models.GenerateUniqueSlug(models.DB, slugBase, "case", &models.Case{}, 0)
 
 	if err := models.DB.Create(&caseItem).Error; err != nil {
 		response.ServerError(c, "创建失败")
@@ -208,6 +242,10 @@ func AdminUpdateCase(c *gin.Context) {
 	var req CaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "参数错误: "+err.Error())
+		return
+	}
+	if err := prepareCaseRequest(&req); err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -251,15 +289,62 @@ func AdminUpdateCase(c *gin.Context) {
 		updates["slug"] = models.GenerateUniqueSlug(models.DB, req.Slug, "case", &models.Case{}, caseItem.ID)
 	}
 
-	models.DB.Model(&caseItem).Updates(updates)
+	if err := models.DB.Model(&caseItem).Updates(updates).Error; err != nil {
+		response.ServerError(c, "更新失败")
+		return
+	}
 	response.SuccessWithMessage(c, "更新成功", caseItem)
+}
+
+func prepareCaseRequest(req *CaseRequest) error {
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" || !validPublishStatus(req.Status) || req.SortOrder < 0 || req.SortOrder > 100000 {
+		return fmt.Errorf("标题、状态或排序值不合法")
+	}
+	if err := validateCategoryType(req.CategoryID, "case"); err != nil {
+		return err
+	}
+	if err := validatePublicURL(req.CoverImage, true); err != nil {
+		return fmt.Errorf("封面地址不合法: %v", err)
+	}
+	if len(req.Images) > 200 {
+		return fmt.Errorf("图片数量不能超过 200 张")
+	}
+	for _, image := range req.Images {
+		if err := validatePublicURL(image, false); err != nil {
+			return fmt.Errorf("图片地址不合法: %v", err)
+		}
+	}
+	blocks, err := sanitizeCaseBlocks(req.Blocks)
+	if err != nil {
+		return err
+	}
+	req.Blocks = blocks
+	req.Content = sanitizeRichText(req.Content)
+	if len(req.Content) > 500000 {
+		return fmt.Errorf("详情内容过长")
+	}
+	return nil
+}
+
+func sanitizeCaseOutput(item *models.Case) {
+	item.Content = sanitizeRichText(item.Content)
+	var blocks []models.CaseBlock
+	if err := json.Unmarshal(item.Blocks, &blocks); err == nil {
+		if cleaned, cleanErr := sanitizeCaseBlocks(blocks); cleanErr == nil {
+			if data, marshalErr := json.Marshal(cleaned); marshalErr == nil {
+				item.Blocks = models.JSON(data)
+			}
+		}
+	}
 }
 
 // AdminDeleteCase 删除案例
 func AdminDeleteCase(c *gin.Context) {
 	id := c.Param("id")
 
-	if err := models.DB.Delete(&models.Case{}, id).Error; err != nil {
+	result := models.DB.Delete(&models.Case{}, id)
+	if result.Error != nil || result.RowsAffected == 0 {
 		response.ServerError(c, "删除失败")
 		return
 	}

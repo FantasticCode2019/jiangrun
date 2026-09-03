@@ -13,14 +13,21 @@ type RateLimiter struct {
 	mu       sync.Mutex
 	limit    int
 	window   time.Duration
-	requests map[string][]time.Time
+	requests map[string]rateWindow
 }
+
+type rateWindow struct {
+	startedAt time.Time
+	count     int
+}
+
+const maxRateLimitKeys = 10000
 
 func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	return &RateLimiter{
 		limit:    limit,
 		window:   window,
-		requests: make(map[string][]time.Time),
+		requests: make(map[string]rateWindow),
 	}
 }
 
@@ -30,46 +37,33 @@ func (rl *RateLimiter) Allow(key string) bool {
 	defer rl.mu.Unlock()
 
 	now := time.Now()
-	cutoff := now.Add(-rl.window)
+	entry, exists := rl.requests[key]
+	if exists && now.Sub(entry.startedAt) < rl.window {
+		if entry.count >= rl.limit {
+			return false
+		}
+		entry.count++
+		rl.requests[key] = entry
+		return true
+	}
 
-	times := rl.requests[key]
-	kept := 0
-	for _, t := range times {
-		if t.After(cutoff) {
-			times[kept] = t
-			kept++
+	// 攻击者可能不断伪造新 key。先回收过期窗口；容量仍满时拒绝新 key，
+	// 避免限流器自身成为内存耗尽入口。
+	if !exists && len(rl.requests) >= maxRateLimitKeys {
+		rl.gc(now)
+		if len(rl.requests) >= maxRateLimitKeys {
+			return false
 		}
 	}
-	times = times[:kept]
 
-	if kept >= rl.limit {
-		rl.requests[key] = times
-		return false
-	}
-
-	rl.requests[key] = append(times, now)
-
-	// 防止 map 无限增长
-	if len(rl.requests) > 10000 {
-		rl.gc(cutoff)
-	}
-
+	rl.requests[key] = rateWindow{startedAt: now, count: 1}
 	return true
 }
 
-func (rl *RateLimiter) gc(cutoff time.Time) {
-	for k, times := range rl.requests {
-		kept := 0
-		for _, t := range times {
-			if t.After(cutoff) {
-				times[kept] = t
-				kept++
-			}
-		}
-		if kept == 0 {
-			delete(rl.requests, k)
-		} else {
-			rl.requests[k] = times[:kept]
+func (rl *RateLimiter) gc(now time.Time) {
+	for key, entry := range rl.requests {
+		if now.Sub(entry.startedAt) >= rl.window {
+			delete(rl.requests, key)
 		}
 	}
 }

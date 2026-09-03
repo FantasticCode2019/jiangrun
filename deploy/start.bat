@@ -14,8 +14,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0deploy.ps1" run
 
 echo.
 echo 如果浏览器没有自动打开，可手动访问：
-echo    前台官网:  http://localhost/
-echo    后台管理:  http://localhost:3001
+echo    前台官网:  https://jiangrun.net/
+echo    后台管理:  https://jiangrun.net/admin/
 echo    （远程部署时，把 localhost 换成那台机器的 IP）
 echo.
 pause

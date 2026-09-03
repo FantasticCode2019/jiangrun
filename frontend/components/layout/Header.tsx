@@ -1,31 +1,19 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSettings } from '@/lib/settings'
-import { getCategories } from '@/lib/categories'
+import { api } from '@/lib/api'
+import { categoryFromBackend, getCategories, type BackendCategory } from '@/lib/categories'
 
 type NavChild = { label: string; href: string }
 type NavItem = { label: string; href: string; en: string; children?: NavChild[] }
-
-const designCategories = getCategories()
 
 const aboutChildren: NavChild[] = [
   { label: '关于我们', href: '/about' },
   { label: '企业招聘', href: '/about' },
   { label: '联系我们', href: '/contact' },
-]
-
-const staticNav: NavItem[] = [
-  { label: '关于江润', href: '/about', en: 'ABOUT', children: aboutChildren },
-  ...designCategories.map((c) => ({
-    label: c.title,
-    href: `/${c.key}`,
-    en: c.en,
-    children: c.submenu.map((s) => ({ label: s.label, href: `/${c.key}` })),
-  })),
-  { label: '联系我们', href: '/contact', en: 'CONTACT' },
 ]
 
 export default function Header() {
@@ -34,6 +22,35 @@ export default function Header() {
   const [openSub, setOpenSub] = useState<string | null>(null)
   const pathname = usePathname()
   const settings = useSettings()
+	const [managedCategories, setManagedCategories] = useState<BackendCategory[] | null>(null)
+
+	useEffect(() => {
+		let active = true
+		api.getCategories('case')
+		  .then((items: BackendCategory[]) => active && setManagedCategories(items || []))
+		  .catch(() => active && setManagedCategories(null))
+		return () => { active = false }
+	}, [])
+
+	const staticNav = useMemo<NavItem[]>(() => {
+		const designCategories = managedCategories === null
+		  ? getCategories()
+		  : managedCategories.map((item) => categoryFromBackend(item, undefined))
+		return [
+		  { label: '首页', href: '/', en: 'HOME' },
+		  { label: '关于江润', href: '/about', en: 'ABOUT', children: aboutChildren },
+		  ...designCategories.map((category) => ({
+			label: category.title,
+			href: `/${category.key}`,
+			en: category.en,
+			children: category.submenu.map((child) => ({
+			  label: child.label,
+			  href: `/${category.key}#${child.slug}`,
+			})),
+		  })),
+		  { label: '联系我们', href: '/contact', en: 'CONTACT' },
+		]
+	}, [managedCategories])
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 40)
@@ -46,23 +63,22 @@ export default function Header() {
     setOpenSub(null)
   }, [pathname])
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
+  const isActive = (href: string) => href === '/' ? pathname === '/' : pathname === href || pathname.startsWith(href + '/')
 
   // 部分较长菜单项需要更宽站位（避免两行），含「别墅」「屋顶」这类 6 字菜单
-  const widerKeys = ['/villa', '/rooftop']
-  const cellWidth = (href: string) => (widerKeys.includes(href) ? '9.6rem' : '7.2rem')
+  const cellWidth = (href: string) => (href.includes('villa') || href.includes('rooftop') ? '8.4rem' : '6.5rem')
 
   return (
     <header className={`glass-nav fixed top-0 left-0 right-0 z-50 ${scrolled ? 'scrolled' : ''}`}>
-      <div className="mx-auto max-w-[1400px] px-6 flex items-center justify-between h-24">
+      <div className="mx-auto max-w-[1480px] px-5 xl:px-8 flex items-center justify-between h-[84px]">
         {/* Logo */}
         <Link href="/" className="flex items-center shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/images/site/logo.png" alt="江润园林" className="h-11 w-auto object-contain" />
+          <img src="/images/site/logo.png" alt="江润园林" className="h-10 w-auto object-contain" />
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden lg:flex items-center justify-center flex-1 px-4">
+        <nav className="hidden xl:flex items-center justify-center flex-1 px-5">
           {staticNav.map((item, i) => {
             const active = isActive(item.href)
             const hasChildren = !!(item.children && item.children.length)
@@ -98,7 +114,7 @@ export default function Header() {
         </nav>
 
         {/* Phone */}
-        <div className="hidden lg:flex flex-col items-end gap-0.5 shrink-0" style={{ color: '#f0ddb0' }}>
+        <a href={`tel:${settings.phone || '13701024192'}`} className="header-phone hidden xl:flex flex-col items-start gap-0.5 shrink-0">
           <div className="flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
@@ -106,28 +122,25 @@ export default function Header() {
             </svg>
             <span className="text-sm font-medium tracking-[0.03em]">{settings.phone || '13701024192'}</span>
           </div>
-          <span className="text-[10px] tracking-[0.3em] text-white/50">全国服务热线</span>
-        </div>
+          <span className="text-[9px] tracking-[0.24em] text-white/45 ml-6">全国服务热线</span>
+        </a>
 
         {/* Mobile Menu Button */}
         <button
-          className="lg:hidden text-white p-2"
+          className={`mobile-menu-toggle xl:hidden ${mobileOpen ? 'is-open' : ''}`}
           onClick={() => setMobileOpen(!mobileOpen)}
           aria-label="切换导航菜单"
+          aria-expanded={mobileOpen}
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {mobileOpen ? (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            )}
-          </svg>
+          <span />
+          <span />
+          <span />
         </button>
       </div>
 
       {/* Mobile Menu */}
       {mobileOpen && (
-        <div className="lg:hidden bg-primary-dark/97 backdrop-blur-lg border-t border-white/10 max-h-[80vh] overflow-y-auto">
+        <div className="xl:hidden bg-primary-dark/97 backdrop-blur-lg border-t border-white/10 max-h-[80vh] overflow-y-auto">
           <nav className="flex flex-col py-2">
             {staticNav.map((item) => {
               const active = isActive(item.href)

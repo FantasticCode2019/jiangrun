@@ -15,18 +15,21 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  token: localStorage.getItem('token'),
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
+	// 访问令牌只保留到当前浏览器会话，降低持久化 XSS 窃取长期凭据的风险。
+  token: sessionStorage.getItem('token'),
+  user: readStoredUser(),
 
   setAuth: (token: string, user: User) => {
-    localStorage.setItem('token', token)
-    localStorage.setItem('user', JSON.stringify(user))
+	sessionStorage.setItem('token', token)
+	sessionStorage.setItem('user', JSON.stringify(user))
     set({ token, user })
   },
 
   logout: () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+	sessionStorage.removeItem('token')
+	sessionStorage.removeItem('user')
+	localStorage.removeItem('token')
+	localStorage.removeItem('user')
     set({ token: null, user: null })
   },
 
@@ -34,3 +37,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return !!get().token
   },
 }))
+
+function readStoredUser(): User | null {
+	try {
+		return JSON.parse(sessionStorage.getItem('user') || 'null')
+	} catch {
+		sessionStorage.removeItem('user')
+		return null
+	}
+}

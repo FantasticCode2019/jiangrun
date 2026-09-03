@@ -59,7 +59,7 @@ init_env() {
 
   local dbpass adminpass jwt
   dbpass=$(rand_hex 16)
-  adminpass=$(rand_hex 8)
+	adminpass="Jr9-$(rand_hex 8)"
   jwt=$(rand_hex 32)
 
   ok "首次运行，生成随机密钥与初始密码 → .env"
@@ -74,9 +74,13 @@ POSTGRES_DB=jiangrun
 JWT_SECRET=${jwt}
 ADMIN_INITIAL_PASSWORD=${adminpass}
 SERVER_MODE=release
+CORS_ALLOWED_ORIGINS=https://jiangrun.net,https://www.jiangrun.net
 
-# 对外 HTTP 端口
+# 域名、TLS 证书目录（目录中必须包含 fullchain.pem、privkey.pem）
+DOMAIN=jiangrun.net
+TLS_CERT_DIR=./certs
 HTTP_PORT=80
+HTTPS_PORT=443
 
 # 前端反代到后端的地址（容器内部服务名，一般无需修改）
 API_URL=http://server:8080
@@ -102,13 +106,31 @@ do_check() {
   fi
   # 不要打印真实值，只判断是否安全；fail=1 表示存在不安全项
   local jwt dbpass adminpass fail=0
-  jwt=$(grep '^JWT_SECRET=' .env | head -1 | cut -d= -f2-)
-  dbpass=$(grep '^POSTGRES_PASSWORD=' .env | head -1 | cut -d= -f2-)
-  adminpass=$(grep '^ADMIN_INITIAL_PASSWORD=' .env | head -1 | cut -d= -f2-)
+	jwt=$(grep '^JWT_SECRET=' .env | head -1 | cut -d= -f2- || true)
+	dbpass=$(grep '^POSTGRES_PASSWORD=' .env | head -1 | cut -d= -f2- || true)
+	adminpass=$(grep '^ADMIN_INITIAL_PASSWORD=' .env | head -1 | cut -d= -f2- || true)
 
-  [ -n "$jwt" ] && [ "$jwt" != "jiangrun-secret-key-change-in-production" ] || { err "JWT_SECRET 未设置或仍为默认值，请运行 ./deploy.sh init 重新生成"; fail=1; }
+	[ "${#jwt}" -ge 32 ] && [ "$jwt" != "jiangrun-secret-key-change-in-production" ] || { err "JWT_SECRET 未设置、过短或仍为默认值，请运行 ./deploy.sh init 重新生成"; fail=1; }
   [ -n "$dbpass" ] && [ "$dbpass" != "postgres" ] && [ "$dbpass" != "change-me-to-a-random-password" ] || { err "POSTGRES_PASSWORD 未设置或仍为默认值"; fail=1; }
-  [ -n "$adminpass" ] && [ "$adminpass" != "admin123" ] || { warn "ADMIN_INITIAL_PASSWORD 未设置（后端将回退到 admin123），建议配置随机初始密码"; }
+	if [ "${#adminpass}" -lt 12 ] || [ "${#adminpass}" -gt 72 ] || [ "$adminpass" = "admin123" ] ||
+	   [[ ! "$adminpass" =~ [[:alpha:]] ]] || [[ ! "$adminpass" =~ [[:digit:]] ]]; then
+	  err "ADMIN_INITIAL_PASSWORD 必须为12-72位并同时包含字母和数字"
+	  fail=1
+	fi
+	local domain origins
+	domain=$(grep '^DOMAIN=' .env | head -1 | cut -d= -f2- || true)
+	origins=$(grep '^CORS_ALLOWED_ORIGINS=' .env | head -1 | cut -d= -f2- || true)
+	[ "$domain" = "jiangrun.net" ] || { err "DOMAIN 必须与当前 Nginx 配置一致：jiangrun.net"; fail=1; }
+	[ -n "$origins" ] && [[ "$origins" != *"*"* ]] && [[ "$origins" == https://* ]] || { err "CORS_ALLOWED_ORIGINS 必须是明确的 HTTPS 域名且不能包含通配符"; fail=1; }
+	local cert_dir
+	cert_dir=$(grep '^TLS_CERT_DIR=' .env | head -1 | cut -d= -f2- || true)
+	if [ -z "$cert_dir" ] || [ ! -f "$cert_dir/fullchain.pem" ] || [ ! -f "$cert_dir/privkey.pem" ]; then
+	  err "TLS 证书缺失：请在 TLS_CERT_DIR 放置 fullchain.pem 和 privkey.pem"
+	  fail=1
+	elif command -v openssl >/dev/null 2>&1; then
+	  openssl x509 -in "$cert_dir/fullchain.pem" -noout -checkend 2592000 >/dev/null 2>&1 || { err "TLS 证书无效、已过期或将在30天内过期"; fail=1; }
+	  openssl x509 -in "$cert_dir/fullchain.pem" -noout -checkhost "$domain" >/dev/null 2>&1 || { err "TLS 证书与 DOMAIN 不匹配"; fail=1; }
+	fi
 
   if [ "$fail" = "0" ]; then
     ok ".env 密钥检查通过"
@@ -203,7 +225,7 @@ do_stats() {
 # ---------- 辅助 ----------
 # 检查对外端口是否被占用，避免冲突
 check_port() {
-  local hp="${HTTP_PORT:-80}"
+	local hp="${HTTPS_PORT:-443}"
   if command -v lsof >/dev/null 2>&1; then
     if lsof -nP -iTCP:"$hp" -sTCP:LISTEN >/dev/null 2>&1; then
       warn "端口 $hp 已被占用，可在 .env 中修改 HTTP_PORT 后重试"
@@ -216,10 +238,10 @@ wait_ready() {
     warn "未安装 curl，跳过健康检查"
     return 0
   fi
-  local hp="${HTTP_PORT:-80}"
+  local hp="${HTTPS_PORT:-443}"
   info "等待服务就绪（经 Nginx 检测 $hp 端口）..."
   for _ in $(seq 1 75); do
-    if curl -sf "http://127.0.0.1:${hp}/api/v1/settings" >/dev/null 2>&1; then
+	if curl -ksf "https://127.0.0.1:${hp}/api/v1/settings" >/dev/null 2>&1; then
       ok "服务已就绪"
       return 0
     fi
@@ -229,14 +251,14 @@ wait_ready() {
 }
 
 print_summary() {
-  local ip hp
-  ip=$(get_ip)
-  hp="${HTTP_PORT:-80}"
+	local domain
+	domain=$(grep '^DOMAIN=' .env | head -1 | cut -d= -f2-)
+	[ -n "$domain" ] || domain="jiangrun.net"
   echo "=========================================================="
   echo "  部署完成，访问地址："
-  echo "    前台官网:  http://${ip}/"
-  echo "    后台管理:  http://${ip}:3001"
-  echo "  （后台监听所有接口；如需仅本机访问，改 docker-compose 中 admin 为 127.0.0.1:3001:3001）"
+	echo "    前台官网:  https://${domain}/"
+	echo "    后台管理:  https://${domain}/admin/"
+	echo "  后台没有独立公网端口，仅能通过 HTTPS 入口访问。"
   echo "=========================================================="
   echo ""
 }

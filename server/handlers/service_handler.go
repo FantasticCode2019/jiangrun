@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	"jiangrun-server/models"
 	"jiangrun-server/pkg/response"
@@ -10,11 +12,11 @@ import (
 )
 
 type ServiceRequest struct {
-	Title       string `json:"title" binding:"required"`
-	Slug        string `json:"slug"`
-	Icon        string `json:"icon"`
-	CoverImage  string `json:"cover_image"`
-	Description string `json:"description"`
+	Title       string `json:"title" binding:"required,max=200"`
+	Slug        string `json:"slug" binding:"max=200"`
+	Icon        string `json:"icon" binding:"max=100"`
+	CoverImage  string `json:"cover_image" binding:"max=500"`
+	Description string `json:"description" binding:"max=4000"`
 	Content     string `json:"content"`
 	CategoryID  *uint  `json:"category_id"`
 	SortOrder   int    `json:"sort_order"`
@@ -24,10 +26,13 @@ type ServiceRequest struct {
 // GetServices 获取服务列表 (公开)
 func GetServices(c *gin.Context) {
 	var services []models.Service
-	models.DB.Where("status = ?", 1).
+	if err := models.DB.Where("status = ?", 1).
 		Order("sort_order ASC, id ASC").
 		Preload("Category").
-		Find(&services)
+		Find(&services).Error; err != nil {
+		response.ServerError(c, "读取服务失败")
+		return
+	}
 
 	response.Success(c, services)
 }
@@ -41,6 +46,7 @@ func GetServiceBySlug(c *gin.Context) {
 		response.NotFound(c, "服务不存在")
 		return
 	}
+	service.Content = sanitizeRichText(service.Content)
 
 	response.Success(c, service)
 }
@@ -49,18 +55,30 @@ func GetServiceBySlug(c *gin.Context) {
 func AdminGetServices(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
 
 	query := models.DB.Model(&models.Service{})
 
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		response.ServerError(c, "读取服务失败")
+		return
+	}
 
 	var services []models.Service
-	query.Order("sort_order ASC, id ASC").
+	if err := query.Order("sort_order ASC, id ASC").
 		Offset((page - 1) * size).
 		Limit(size).
 		Preload("Category").
-		Find(&services)
+		Find(&services).Error; err != nil {
+		response.ServerError(c, "读取服务失败")
+		return
+	}
 
 	response.Page(c, services, total, page, size)
 }
@@ -85,6 +103,10 @@ func AdminCreateService(c *gin.Context) {
 		response.BadRequest(c, "参数错误: "+err.Error())
 		return
 	}
+	if err := prepareServiceRequest(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
 	service := models.Service{
 		Title:       req.Title,
@@ -98,9 +120,11 @@ func AdminCreateService(c *gin.Context) {
 		Status:      req.Status,
 	}
 
-	if service.Slug == "" {
-		service.Slug = models.GenerateUniqueSlug(models.DB, req.Title, "service", &models.Service{}, 0)
+	slugBase := req.Slug
+	if slugBase == "" {
+		slugBase = req.Title
 	}
+	service.Slug = models.GenerateUniqueSlug(models.DB, slugBase, "service", &models.Service{}, 0)
 
 	if err := models.DB.Create(&service).Error; err != nil {
 		response.ServerError(c, "创建失败")
@@ -125,6 +149,10 @@ func AdminUpdateService(c *gin.Context) {
 		response.BadRequest(c, "参数错误: "+err.Error())
 		return
 	}
+	if err := prepareServiceRequest(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
 	updates := map[string]interface{}{
 		"title":       req.Title,
@@ -140,15 +168,37 @@ func AdminUpdateService(c *gin.Context) {
 		updates["slug"] = models.GenerateUniqueSlug(models.DB, req.Slug, "service", &models.Service{}, service.ID)
 	}
 
-	models.DB.Model(&service).Updates(updates)
+	if err := models.DB.Model(&service).Updates(updates).Error; err != nil {
+		response.ServerError(c, "更新失败")
+		return
+	}
 	response.SuccessWithMessage(c, "更新成功", service)
+}
+
+func prepareServiceRequest(req *ServiceRequest) error {
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" || !validPublishStatus(req.Status) || req.SortOrder < 0 || req.SortOrder > 100000 {
+		return fmt.Errorf("标题、状态或排序值不合法")
+	}
+	if err := validateCategoryType(req.CategoryID, "service"); err != nil {
+		return err
+	}
+	if err := validatePublicURL(req.CoverImage, true); err != nil {
+		return fmt.Errorf("封面地址不合法: %v", err)
+	}
+	req.Content = sanitizeRichText(req.Content)
+	if len(req.Content) > 500000 {
+		return fmt.Errorf("服务详情过长")
+	}
+	return nil
 }
 
 // AdminDeleteService 删除服务
 func AdminDeleteService(c *gin.Context) {
 	id := c.Param("id")
 
-	if err := models.DB.Delete(&models.Service{}, id).Error; err != nil {
+	result := models.DB.Delete(&models.Service{}, id)
+	if result.Error != nil || result.RowsAffected == 0 {
 		response.ServerError(c, "删除失败")
 		return
 	}

@@ -3,8 +3,8 @@ const API_URL = process.env.API_URL || 'http://localhost:8080'
 
 const nextConfig = {
   output: 'standalone',
+	outputFileTracingRoot: __dirname,
   images: {
-    domains: ['localhost'],
     unoptimized: true,
   },
   async rewrites() {

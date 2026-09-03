@@ -14,6 +14,17 @@ export interface Category {
   submenu: { label: string; slug: string }[]
 }
 
+export interface BackendCategory {
+  id: number
+  name: string
+  name_en?: string
+  slug: string
+  subtitle?: string
+  description?: string
+  status?: number
+  children?: BackendCategory[]
+}
+
 const CATEGORY_ORDER = ['landscape', 'villa', 'rooftop', 'rockery', 'factory'] as const
 
 const CATEGORIES: Record<(typeof CATEGORY_ORDER)[number], Category> = {
@@ -103,5 +114,31 @@ export function getCategories(): Category[] {
 }
 
 export function getCategory(key: string): Category | undefined {
-  return CATEGORIES[key as keyof typeof CATEGORIES]
+  const direct = CATEGORIES[key as keyof typeof CATEGORIES]
+  if (direct) return direct
+  return getCategories().find((category) =>
+    category.key === key || category.submenu.some((item) => item.slug === key),
+  )
+}
+
+export function categoryFromBackend(category: BackendCategory, fallback?: Category): Category {
+  const intro = (category.description || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  return {
+    key: category.slug,
+    title: category.name,
+    en: category.name_en || fallback?.en || category.slug.replaceAll('-', ' ').toUpperCase(),
+    subtitle: category.subtitle || fallback?.subtitle || '',
+    intro: intro.length ? intro : (fallback?.intro || []),
+    submenu: (category.children || []).map((child) => ({ label: child.name, slug: child.slug })),
+  }
+}
+
+export function findFallbackCategory(slug: string, name?: string): Category | undefined {
+  return getCategories().find((category) =>
+    category.key === slug || slug.includes(category.key) || category.title === name,
+  )
 }

@@ -1,6 +1,7 @@
 server:
   port: 8080
   mode: debug
+  allowed_origins: http://localhost:3000,http://localhost:3001
 
 database:
   host: host.docker.internal

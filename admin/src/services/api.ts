@@ -7,7 +7,7 @@ const api = axios.create({
 
 // 请求拦截器 - 添加 token
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+	const token = sessionStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -25,10 +25,11 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+	  sessionStorage.removeItem('token')
+	  sessionStorage.removeItem('user')
+	  window.location.href = '/admin/login'
     }
-    return Promise.reject(error)
+	return Promise.reject(new Error(error.response?.data?.message || error.message || '请求失败'))
   }
 )
 
@@ -121,19 +122,6 @@ export const uploadAPI = {
       timeout: 60000,
     })
   },
-  video: (file: File, onProgress?: (percent: number) => void) => {
-    const formData = new FormData()
-    formData.append('file', file)
-    return api.post('/admin/upload/video', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 600000,
-      onUploadProgress: (e) => {
-        if (onProgress && e.total) {
-          onProgress(Math.round((e.loaded / e.total) * 100))
-        }
-      },
-    })
-  },
   /**
    * 大文件分片上传（断点续传）。
    * @param file 待上传文件
@@ -147,8 +135,6 @@ export const uploadAPI = {
     subdir: 'images' | 'videos',
     onProgress?: (percent: number) => void,
   ) => {
-    const CHUNK = 8 * 1024 * 1024 // 8MB
-    const chunkCount = Math.ceil(file.size / CHUNK)
     const resumeKey = `upload_${subdir}_${file.name}_${file.size}`
 
     // 断点续传：从 localStorage 恢复上次的 upload_id（分片临时目录仍在后端）
@@ -163,13 +149,18 @@ export const uploadAPI = {
     })
     const initData = initRes.data?.data || initRes.data
     uploadId = initData.upload_id
+	const chunkSize = Number(initData.chunk_size)
+	const chunkCount = Number(initData.chunk_count) || Math.ceil(file.size / chunkSize)
+	if (!Number.isSafeInteger(chunkSize) || chunkSize <= 0 || !Number.isSafeInteger(chunkCount) || chunkCount <= 0) {
+	  throw new Error('服务端返回的分片参数无效')
+	}
     localStorage.setItem(resumeKey, uploadId)
 
     // 2. 查询已上传分片
     const uploaded = new Set<number>()
     try {
       const st: any = await api.get('/admin/upload/chunk/status', { params: { upload_id: uploadId } })
-      const done = ((st.data && st.data.data) || {}).uploaded || []
+	  const done = st.data?.uploaded || []
       done.forEach((i: number) => uploaded.add(i))
     } catch {}
 
@@ -178,7 +169,7 @@ export const uploadAPI = {
     let cursor = 0
     const uploadChunk = async (i: number) => {
       if (uploaded.has(i)) return
-      const blob = file.slice(i * CHUNK, Math.min((i + 1) * CHUNK, file.size))
+	  const blob = file.slice(i * chunkSize, Math.min((i + 1) * chunkSize, file.size))
       const fd = new FormData()
       fd.append('upload_id', uploadId)
       fd.append('index', String(i))
@@ -202,11 +193,8 @@ export const uploadAPI = {
     onProgress?.(100)
 
     // 4. 合并完成
-    const ext = (file.name.split('.').pop() || '') as string
     const fd = new FormData()
     fd.append('upload_id', uploadId)
-    fd.append('ext', ext)
-    fd.append('subdir', subdir)
     const comp: any = await api.post('/admin/upload/chunk/complete', fd, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })

@@ -9,6 +9,7 @@ import (
 type Banner struct {
 	ID        uint           `json:"id" gorm:"primaryKey"`
 	Title     string         `json:"title" gorm:"size:200"`
+	Subtitle  string         `json:"subtitle" gorm:"size:500"`
 	ImageURL  string         `json:"image_url" gorm:"size:500;not null"`
 	LinkURL   string         `json:"link_url" gorm:"size:500"`
 	Position  string         `json:"position" gorm:"size:50;default:home"` // home, case, video

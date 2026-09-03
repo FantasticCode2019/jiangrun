@@ -1,5 +1,5 @@
 # ===== 构建阶段 =====
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 
 ARG API_URL=http://localhost:8080
 ENV API_URL=$API_URL
@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build
 
 # ===== 运行阶段：仅保留独立产物，体积更小 =====
-FROM node:18-alpine AS runner
+FROM node:22-alpine AS runner
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

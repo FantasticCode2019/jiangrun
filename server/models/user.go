@@ -8,13 +8,14 @@ import (
 )
 
 type User struct {
-	ID        uint           `json:"id" gorm:"primaryKey"`
-	Username  string         `json:"username" gorm:"uniqueIndex;size:50;not null"`
-	Password  string         `json:"-" gorm:"size:255;not null"`
-	Role      string         `json:"role" gorm:"size:20;default:admin"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+	ID           uint           `json:"id" gorm:"primaryKey"`
+	Username     string         `json:"username" gorm:"uniqueIndex;size:50;not null"`
+	Password     string         `json:"-" gorm:"size:255;not null"`
+	Role         string         `json:"role" gorm:"size:20;default:admin"`
+	TokenVersion int            `json:"-" gorm:"default:1;not null"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 // HashPassword 加密密码

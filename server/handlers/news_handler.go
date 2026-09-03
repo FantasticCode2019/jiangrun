@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	"jiangrun-server/models"
 	"jiangrun-server/pkg/response"
@@ -11,10 +13,10 @@ import (
 )
 
 type NewsRequest struct {
-	Title      string `json:"title" binding:"required"`
-	Slug       string `json:"slug"`
-	CoverImage string `json:"cover_image"`
-	Summary    string `json:"summary"`
+	Title      string `json:"title" binding:"required,max=200"`
+	Slug       string `json:"slug" binding:"max=200"`
+	CoverImage string `json:"cover_image" binding:"max=500"`
+	Summary    string `json:"summary" binding:"max=1000"`
 	Content    string `json:"content"`
 	CategoryID *uint  `json:"category_id"`
 	Status     int    `json:"status"`
@@ -29,6 +31,9 @@ func GetNewsList(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
+	if size < 1 || size > 50 {
+		size = 10
+	}
 
 	query := models.DB.Model(&models.News{}).Where("status = ?", 1)
 	if categoryID != "" {
@@ -36,14 +41,20 @@ func GetNewsList(c *gin.Context) {
 	}
 
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		response.ServerError(c, "读取新闻失败")
+		return
+	}
 
 	var news []models.News
-	query.Order("id DESC").
+	if err := query.Order("id DESC").
 		Offset((page - 1) * size).
 		Limit(size).
 		Preload("Category").
-		Find(&news)
+		Find(&news).Error; err != nil {
+		response.ServerError(c, "读取新闻失败")
+		return
+	}
 
 	response.Page(c, news, total, page, size)
 }
@@ -57,6 +68,7 @@ func GetNewsDetail(c *gin.Context) {
 		response.NotFound(c, "新闻不存在")
 		return
 	}
+	news.Content = sanitizeRichText(news.Content)
 
 	// 增加浏览量
 	models.DB.Model(&news).UpdateColumn("view_count", gorm.Expr("view_count + 1"))
@@ -73,6 +85,13 @@ func AdminGetNews(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	if len([]rune(keyword)) > 100 {
+		response.BadRequest(c, "搜索词过长")
+		return
+	}
 
 	query := models.DB.Model(&models.News{})
 	if keyword != "" {
@@ -80,14 +99,20 @@ func AdminGetNews(c *gin.Context) {
 	}
 
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		response.ServerError(c, "读取新闻失败")
+		return
+	}
 
 	var news []models.News
-	query.Order("id DESC").
+	if err := query.Order("id DESC").
 		Offset((page - 1) * size).
 		Limit(size).
 		Preload("Category").
-		Find(&news)
+		Find(&news).Error; err != nil {
+		response.ServerError(c, "读取新闻失败")
+		return
+	}
 
 	response.Page(c, news, total, page, size)
 }
@@ -112,6 +137,10 @@ func AdminCreateNews(c *gin.Context) {
 		response.BadRequest(c, "参数错误: "+err.Error())
 		return
 	}
+	if err := prepareNewsRequest(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
 	news := models.News{
 		Title:      req.Title,
@@ -123,9 +152,11 @@ func AdminCreateNews(c *gin.Context) {
 		Status:     req.Status,
 	}
 
-	if news.Slug == "" {
-		news.Slug = models.GenerateUniqueSlug(models.DB, req.Title, "news", &models.News{}, 0)
+	slugBase := req.Slug
+	if slugBase == "" {
+		slugBase = req.Title
 	}
+	news.Slug = models.GenerateUniqueSlug(models.DB, slugBase, "news", &models.News{}, 0)
 
 	if err := models.DB.Create(&news).Error; err != nil {
 		response.ServerError(c, "创建失败")
@@ -150,6 +181,10 @@ func AdminUpdateNews(c *gin.Context) {
 		response.BadRequest(c, "参数错误: "+err.Error())
 		return
 	}
+	if err := prepareNewsRequest(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
 	updates := map[string]interface{}{
 		"title":       req.Title,
@@ -163,15 +198,37 @@ func AdminUpdateNews(c *gin.Context) {
 		updates["slug"] = models.GenerateUniqueSlug(models.DB, req.Slug, "news", &models.News{}, news.ID)
 	}
 
-	models.DB.Model(&news).Updates(updates)
+	if err := models.DB.Model(&news).Updates(updates).Error; err != nil {
+		response.ServerError(c, "更新失败")
+		return
+	}
 	response.SuccessWithMessage(c, "更新成功", news)
+}
+
+func prepareNewsRequest(req *NewsRequest) error {
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" || !validPublishStatus(req.Status) {
+		return fmt.Errorf("标题或发布状态不合法")
+	}
+	if err := validateCategoryType(req.CategoryID, "news"); err != nil {
+		return err
+	}
+	if err := validatePublicURL(req.CoverImage, true); err != nil {
+		return fmt.Errorf("封面地址不合法: %v", err)
+	}
+	req.Content = sanitizeRichText(req.Content)
+	if len(req.Content) > 500000 {
+		return fmt.Errorf("新闻内容过长")
+	}
+	return nil
 }
 
 // AdminDeleteNews 删除新闻
 func AdminDeleteNews(c *gin.Context) {
 	id := c.Param("id")
 
-	if err := models.DB.Delete(&models.News{}, id).Error; err != nil {
+	result := models.DB.Delete(&models.News{}, id)
+	if result.Error != nil || result.RowsAffected == 0 {
 		response.ServerError(c, "删除失败")
 		return
 	}

@@ -41,7 +41,10 @@ export default function CategoryList() {
   const openEdit = (record?: any) => {
     setEditing(record || null)
     if (record) form.setFieldsValue(record)
-    else form.resetFields()
+    else {
+      form.resetFields()
+      form.setFieldsValue({ type: filterType || 'case', status: 1, sort_order: 0 })
+    }
     setModalOpen(true)
   }
 
@@ -51,6 +54,8 @@ export default function CategoryList() {
     { title: 'Slug', dataIndex: 'slug' },
     { title: '类型', dataIndex: 'type', render: (v: string) => <Tag>{typeLabels[v] || v}</Tag> },
     { title: '排序', dataIndex: 'sort_order', width: 80 },
+    { title: '前台显示', dataIndex: 'status', width: 100,
+      render: (v: number) => <Tag color={v === 1 ? 'green' : 'default'}>{v === 1 ? '显示' : '隐藏'}</Tag> },
     { title: '操作', width: 160,
       render: (_: any, record: any) => (
         <Space>
@@ -81,11 +86,15 @@ export default function CategoryList() {
 
       <Modal title={editing ? '编辑分类' : '新增分类'} open={modalOpen}
         onCancel={() => { setModalOpen(false); setEditing(null) }}
-        onOk={() => form.submit()} destroyOnClose>
+        onOk={() => form.submit()} destroyOnClose width={680}>
         <Form form={form} layout="vertical" onFinish={handleSave}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="name_en" label="英文名"><Input /></Form.Item>
           <Form.Item name="slug" label="Slug" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="subtitle" label="栏目副标题（仅顶级案例栏目）"><Input maxLength={300} showCount /></Form.Item>
+          <Form.Item name="description" label="栏目简介（每行显示为一段）">
+            <Input.TextArea rows={5} maxLength={4000} showCount />
+          </Form.Item>
           <Form.Item name="type" label="类型" rules={[{ required: true }]}>
             <Select options={Object.entries(typeLabels).map(([k, v]) => ({ value: k, label: v }))} />
           </Form.Item>
@@ -94,6 +103,9 @@ export default function CategoryList() {
               options={data.map((c: any) => ({ value: c.id, label: c.name }))} />
           </Form.Item>
           <Form.Item name="sort_order" label="排序"><InputNumber min={0} /></Form.Item>
+          <Form.Item name="status" label="前台状态" rules={[{ required: true }]}>
+            <Select options={[{ value: 1, label: '显示' }, { value: 0, label: '隐藏' }]} />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

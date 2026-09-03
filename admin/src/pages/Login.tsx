@@ -27,36 +27,43 @@ export default function Login() {
   }
 
   return (
-    <div style={{
-      height: '100vh',
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      background: 'linear-gradient(135deg, #1a3c2a 0%, #2d6b4a 50%, #1a3c2a 100%)',
-    }}>
-      <Card style={{ width: 400, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <Title level={3} style={{ color: '#1a3c2a', marginBottom: 8 }}>江润园林</Title>
-          <Typography.Text type="secondary">后台管理系统</Typography.Text>
+    <div className="login-page">
+      <div className="login-visual">
+        <div className="login-orbit one" />
+        <div className="login-orbit two" />
+        <div className="login-brand"><span>江</span><strong>江润园林</strong></div>
+        <div className="login-story">
+          <span>JIANGRUN LANDSCAPE</span>
+          <h1>让每一处庭院，<br />都被认真呈现。</h1>
+          <p>统一管理案例、影像、资讯与客户咨询。</p>
         </div>
-        <Form name="login" onFinish={onFinish} size="large">
-          <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
+        <div className="login-visual-foot">BEIJING · SINCE 2005</div>
+      </div>
+      <div className="login-form-side">
+        <Card className="login-card" bordered={false}>
+        <div className="login-heading">
+          <span>CONTENT STUDIO</span>
+          <Title level={2}>登录管理后台</Title>
+          <Typography.Text type="secondary">欢迎回来，请输入您的账号信息</Typography.Text>
+        </div>
+        <Form name="login" onFinish={onFinish} size="large" layout="vertical">
+          <Form.Item name="username" label="用户名" rules={[{ required: true, message: '请输入用户名' }]}>
             <Input prefix={<UserOutlined />} placeholder="用户名" />
           </Form.Item>
-          <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
+          <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
             <Input.Password prefix={<LockOutlined />} placeholder="密码" />
           </Form.Item>
           <Form.Item>
-            <Button type="primary" htmlType="submit" loading={loading} block
-              style={{ height: 44, fontSize: 16 }}>
-              登 录
+            <Button className="login-submit" type="primary" htmlType="submit" loading={loading} block>
+              登录后台
             </Button>
           </Form.Item>
         </Form>
-        <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center', fontSize: 12 }}>
-          默认账号: admin / admin123
+        <Typography.Text type="secondary" className="login-hint">
+		  生产环境初始密码由部署时生成；首次登录后请立即修改
         </Typography.Text>
       </Card>
+      </div>
     </div>
   )
 }

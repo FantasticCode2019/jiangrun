@@ -9,11 +9,12 @@ async function fetchAPI(path: string, options?: RequestInit) {
     },
   })
 
-  if (!res.ok) {
-    throw new Error(`API Error: ${res.status}`)
-  }
+	const data = await res.json().catch(() => null)
+	if (!res.ok) {
+	  throw new Error(data?.message || `请求失败 (${res.status})`)
+	}
 
-  const data = await res.json()
+	if (!data) throw new Error('服务响应格式错误')
   if (data.code !== 0) {
     throw new Error(data.message || '请求失败')
   }

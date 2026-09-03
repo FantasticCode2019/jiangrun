@@ -1,7 +1,10 @@
+'use client'
+
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import PageHero from '@/components/ui/PageHero'
 import Reveal from '@/components/ui/Reveal'
+import { useSettings } from '@/lib/settings'
 
 const advantages = [
   { title: '创新设计的团队', desc: '为用户提供全套科学的设计方案' },
@@ -26,6 +29,7 @@ const achievements = [
 ]
 
 export default function AboutPage() {
+	const settings = useSettings()
   return (
     <>
       <Header />
@@ -41,9 +45,7 @@ export default function AboutPage() {
                 <h2 className="section-title">公司简介</h2>
                 <div className="relative h-px w-[220px] my-6" style={{ background: 'linear-gradient(90deg, var(--accent), transparent)' }} />
                 <div className="space-y-5 text-ink-light leading-relaxed">
-                  <p>
-                    北京江润风景园林景观设计有限公司成立于2005年，经过十几年发展，已成长为集园林苗木培育、庭院景观设计、别墅花园设计、屋顶花园设计、露台花园设计、工厂园林规划、商业地产景观设计、家居花木陈设设计、商业空间绿化等为一体的专业化设计、施工及养护的园林绿化品牌企业。
-                  </p>
+				  <p>{settings.about_intro || '北京江润风景园林景观设计有限公司成立于2005年，经过多年发展，已成长为集园林苗木培育、庭院景观设计、别墅花园设计、屋顶花园设计、露台花园设计、工厂园林规划、商业地产景观设计、家居花木陈设设计、商业空间绿化等为一体的专业化设计、施工及养护的园林绿化品牌企业。'}</p>
                   <p>我们的优势在于：</p>
                   <ul className="space-y-3">
                     {advantages.map((item) => (

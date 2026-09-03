@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	"jiangrun-server/models"
 	"jiangrun-server/pkg/response"
@@ -11,13 +13,13 @@ import (
 )
 
 type VideoRequest struct {
-	Title         string `json:"title" binding:"required"`
-	Slug          string `json:"slug"`
-	CoverImage    string `json:"cover_image"`
-	VideoURL      string `json:"video_url" binding:"required"`
-	VideoType     string `json:"video_type"`
+	Title         string `json:"title" binding:"required,max=200"`
+	Slug          string `json:"slug" binding:"max=200"`
+	CoverImage    string `json:"cover_image" binding:"max=500"`
+	VideoURL      string `json:"video_url" binding:"required,max=500"`
+	VideoType     string `json:"video_type" binding:"max=20"`
 	Duration      int    `json:"duration"`
-	Description   string `json:"description"`
+	Description   string `json:"description" binding:"max=4000"`
 	Content       string `json:"content"`
 	CategoryID    *uint  `json:"category_id"`
 	RelatedCaseID *uint  `json:"related_case_id"`
@@ -50,15 +52,21 @@ func GetVideos(c *gin.Context) {
 	}
 
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		response.ServerError(c, "读取视频失败")
+		return
+	}
 
 	var videos []models.Video
-	query.Order("sort_order ASC, id DESC").
+	if err := query.Order("sort_order ASC, id DESC").
 		Offset((page - 1) * size).
 		Limit(size).
 		Preload("Category").
 		Preload("RelatedCase").
-		Find(&videos)
+		Find(&videos).Error; err != nil {
+		response.ServerError(c, "读取视频失败")
+		return
+	}
 
 	response.Page(c, videos, total, page, size)
 }
@@ -72,6 +80,7 @@ func GetVideo(c *gin.Context) {
 		response.NotFound(c, "视频不存在")
 		return
 	}
+	video.Content = sanitizeRichText(video.Content)
 
 	response.Success(c, video)
 }
@@ -81,27 +90,39 @@ func IncrementViewCount(c *gin.Context) {
 	id := c.Param("id")
 
 	var count int64
-	models.DB.Model(&models.Video{}).Where("id = ? AND status = ?", id, 1).Count(&count)
+	if err := models.DB.Model(&models.Video{}).Where("id = ? AND status = ?", id, 1).Count(&count).Error; err != nil {
+		response.ServerError(c, "更新播放量失败")
+		return
+	}
 	if count == 0 {
 		response.NotFound(c, "视频不存在")
 		return
 	}
 
-	models.DB.Model(&models.Video{}).Where("id = ?", id).
-		UpdateColumn("view_count", gorm.Expr("view_count + 1"))
+	if err := models.DB.Model(&models.Video{}).Where("id = ?", id).
+		UpdateColumn("view_count", gorm.Expr("view_count + 1")).Error; err != nil {
+		response.ServerError(c, "更新播放量失败")
+		return
+	}
 	response.Success(c, nil)
 }
 
 // GetFeaturedVideos 获取推荐视频
 func GetFeaturedVideos(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "6"))
+	if limit < 1 || limit > 20 {
+		limit = 6
+	}
 
 	var videos []models.Video
-	models.DB.Where("is_featured = ? AND status = ?", true, 1).
+	if err := models.DB.Where("is_featured = ? AND status = ?", true, 1).
 		Order("sort_order ASC, id DESC").
 		Limit(limit).
 		Preload("Category").
-		Find(&videos)
+		Find(&videos).Error; err != nil {
+		response.ServerError(c, "读取视频失败")
+		return
+	}
 
 	response.Success(c, videos)
 }
@@ -116,6 +137,13 @@ func AdminGetVideos(c *gin.Context) {
 	if page < 1 {
 		page = 1
 	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+	if len([]rune(keyword)) > 100 {
+		response.BadRequest(c, "搜索词过长")
+		return
+	}
 
 	query := models.DB.Model(&models.Video{})
 
@@ -127,15 +155,21 @@ func AdminGetVideos(c *gin.Context) {
 	}
 
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		response.ServerError(c, "读取视频失败")
+		return
+	}
 
 	var videos []models.Video
-	query.Order("sort_order ASC, id DESC").
+	if err := query.Order("sort_order ASC, id DESC").
 		Offset((page - 1) * size).
 		Limit(size).
 		Preload("Category").
 		Preload("RelatedCase").
-		Find(&videos)
+		Find(&videos).Error; err != nil {
+		response.ServerError(c, "读取视频失败")
+		return
+	}
 
 	response.Page(c, videos, total, page, size)
 }
@@ -160,6 +194,10 @@ func AdminCreateVideo(c *gin.Context) {
 		response.BadRequest(c, "参数错误: "+err.Error())
 		return
 	}
+	if err := prepareVideoRequest(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
 	video := models.Video{
 		Title:         req.Title,
@@ -180,9 +218,11 @@ func AdminCreateVideo(c *gin.Context) {
 	if video.VideoType == "" {
 		video.VideoType = "local"
 	}
-	if video.Slug == "" {
-		video.Slug = models.GenerateUniqueSlug(models.DB, req.Title, "video", &models.Video{}, 0)
+	slugBase := req.Slug
+	if slugBase == "" {
+		slugBase = req.Title
 	}
+	video.Slug = models.GenerateUniqueSlug(models.DB, slugBase, "video", &models.Video{}, 0)
 
 	if err := models.DB.Create(&video).Error; err != nil {
 		response.ServerError(c, "创建失败")
@@ -207,6 +247,10 @@ func AdminUpdateVideo(c *gin.Context) {
 		response.BadRequest(c, "参数错误: "+err.Error())
 		return
 	}
+	if err := prepareVideoRequest(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 
 	updates := map[string]interface{}{
 		"title":           req.Title,
@@ -226,15 +270,40 @@ func AdminUpdateVideo(c *gin.Context) {
 		updates["slug"] = models.GenerateUniqueSlug(models.DB, req.Slug, "video", &models.Video{}, video.ID)
 	}
 
-	models.DB.Model(&video).Updates(updates)
+	if err := models.DB.Model(&video).Updates(updates).Error; err != nil {
+		response.ServerError(c, "更新失败")
+		return
+	}
 	response.SuccessWithMessage(c, "更新成功", video)
+}
+
+func prepareVideoRequest(req *VideoRequest) error {
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" || !validPublishStatus(req.Status) || req.Duration < 0 || req.SortOrder < 0 || req.SortOrder > 100000 {
+		return fmt.Errorf("标题、时长、状态或排序值不合法")
+	}
+	if err := validateCategoryType(req.CategoryID, "video"); err != nil {
+		return err
+	}
+	if err := validatePublicURL(req.CoverImage, true); err != nil {
+		return fmt.Errorf("封面地址不合法: %v", err)
+	}
+	if err := validatePublicURL(req.VideoURL, false); err != nil {
+		return fmt.Errorf("视频地址不合法: %v", err)
+	}
+	req.Content = sanitizeRichText(req.Content)
+	if len(req.Content) > 500000 {
+		return fmt.Errorf("视频详情过长")
+	}
+	return nil
 }
 
 // AdminDeleteVideo 删除视频
 func AdminDeleteVideo(c *gin.Context) {
 	id := c.Param("id")
 
-	if err := models.DB.Delete(&models.Video{}, id).Error; err != nil {
+	result := models.DB.Delete(&models.Video{}, id)
+	if result.Error != nil || result.RowsAffected == 0 {
 		response.ServerError(c, "删除失败")
 		return
 	}

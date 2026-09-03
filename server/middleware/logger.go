@@ -1,24 +1,15 @@
 package middleware
 
 import (
-	"io"
 	"log"
-	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 func Logger() gin.HandlerFunc {
-	// 日志文件路径（Docker 挂载用），失败时仅输出到控制台，避免本地启动崩溃
-	logFile := "/app/logs/server.log"
-	_ = os.MkdirAll("/app/logs", 0755)
-
-	if f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-		log.SetOutput(io.MultiWriter(os.Stdout, f))
-	} else {
-		log.Printf("Warning: cannot open log file %s (%v), logging to stdout only", logFile, err)
-	}
+	// 仅写 stdout，由容器运行时负责轮转，避免本地日志无限增长耗尽磁盘。
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
 	return func(c *gin.Context) {
@@ -33,7 +24,10 @@ func Logger() gin.HandlerFunc {
 		latency := time.Since(start)
 		status := c.Writer.Status()
 		ip := c.ClientIP()
-		userAgent := c.Request.UserAgent()
+		userAgent := strings.NewReplacer("\r", "", "\n", "").Replace(c.Request.UserAgent())
+		if len(userAgent) > 300 {
+			userAgent = userAgent[:300]
+		}
 
 		log.Printf("[INFO] %s %s - Completed | Status: %d | Latency: %v | IP: %s | UA: %s",
 			method, path, status, latency, ip, userAgent)

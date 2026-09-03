@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"path/filepath"
+	"net/http"
 	"strconv"
-	"strings"
+	"time"
 
 	"jiangrun-server/pkg/response"
 	"jiangrun-server/pkg/storage"
@@ -21,59 +21,45 @@ type ChunkInitRequest struct {
 
 // ChunkInit 初始化分片上传，返回 upload_id
 func ChunkInit(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
 	var req ChunkInitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "参数错误: "+err.Error())
 		return
 	}
 
-	subdir := req.Subdir
-	if subdir == "" {
-		subdir = "images"
+	userID, _ := c.Get("user_id")
+	ownerID, ok := userID.(uint)
+	if !ok {
+		response.Unauthorized(c, "认证信息无效")
+		return
 	}
-	ext := strings.ToLower(filepath.Ext(req.Filename))
-
-	// 校验文件类型与大小
-	if subdir == "videos" {
-		if !storage.IsVideoFile(req.Filename) {
-			response.BadRequest(c, "不支持的视频格式")
-			return
-		}
+	_ = storage.CleanupExpiredChunks(24 * time.Hour)
+	var meta *storage.ChunkMetadata
+	var initErr error
+	if req.UploadID != "" {
+		meta, initErr = storage.ResumeChunkUpload(req.UploadID, req.Filename, req.Subdir, req.Size, ownerID)
 	} else {
-		if !storage.IsImageFile(req.Filename) {
-			response.BadRequest(c, "不支持的图片格式")
-			return
-		}
+		meta, initErr = storage.InitChunkUpload(req.Filename, req.Subdir, req.Size, ownerID)
 	}
-
-	maxSize := storage.MaxSizeFor(subdir)
-	if req.Size > maxSize {
-		response.BadRequest(c, "文件大小超过限制")
+	if initErr != nil {
+		response.BadRequest(c, initErr.Error())
 		return
 	}
 
-	// 断点续传：若前端提供了 upload_id 且临时目录还存在，则复用
-	uploadID := req.UploadID
-	if uploadID == "" || storage.ChunkDirExists(uploadID) == false {
-		newID, err := storage.ChunkInit()
-		if err != nil {
-			response.ServerError(c, "初始化失败: "+err.Error())
-			return
-		}
-		uploadID = newID
-	}
-
 	response.Success(c, gin.H{
-		"upload_id":  uploadID,
-		"ext":        ext,
-		"chunk_size": storage.ChunkSizeBytes(),
-		"total_size": req.Size,
-		"subdir":     subdir,
+		"upload_id":   meta.UploadID,
+		"ext":         meta.Extension,
+		"chunk_size":  meta.ChunkSize,
+		"chunk_count": meta.ChunkCount,
+		"total_size":  meta.TotalSize,
+		"subdir":      meta.Subdir,
 	})
 }
 
 // ChunkUpload 上传单个分片
 func ChunkUpload(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, storage.ChunkSizeBytes()+(1<<20))
 	uploadID := c.PostForm("upload_id")
 	indexStr := c.PostForm("index")
 	chunkFile, err := c.FormFile("file")
@@ -88,8 +74,14 @@ func ChunkUpload(c *gin.Context) {
 		return
 	}
 
-	if err := storage.SaveChunk(uploadID, index, chunkFile); err != nil {
-		response.ServerError(c, "保存分片失败: "+err.Error())
+	userID, _ := c.Get("user_id")
+	ownerID, ok := userID.(uint)
+	if !ok {
+		response.Unauthorized(c, "认证信息无效")
+		return
+	}
+	if err := storage.SaveChunk(uploadID, index, chunkFile, ownerID); err != nil {
+		response.BadRequest(c, "保存分片失败: "+err.Error())
 		return
 	}
 
@@ -103,7 +95,13 @@ func ChunkStatus(c *gin.Context) {
 		response.BadRequest(c, "缺少 upload_id")
 		return
 	}
-	idx, err := storage.UploadedChunks(uploadID)
+	userID, _ := c.Get("user_id")
+	ownerID, ok := userID.(uint)
+	if !ok {
+		response.Unauthorized(c, "认证信息无效")
+		return
+	}
+	idx, err := storage.UploadedChunks(uploadID, ownerID)
 	if err != nil {
 		response.ServerError(c, err.Error())
 		return
@@ -114,22 +112,19 @@ func ChunkStatus(c *gin.Context) {
 // ChunkComplete 合并分片完成上传，返回最终 URL
 func ChunkComplete(c *gin.Context) {
 	uploadID := c.PostForm("upload_id")
-	ext := c.PostForm("ext")
-	subdir := c.PostForm("subdir")
 	if uploadID == "" {
 		response.BadRequest(c, "缺少 upload_id")
 		return
 	}
-	if subdir == "" {
-		subdir = "images"
+	userID, _ := c.Get("user_id")
+	ownerID, ok := userID.(uint)
+	if !ok {
+		response.Unauthorized(c, "认证信息无效")
+		return
 	}
-	if !strings.HasPrefix(ext, ".") {
-		ext = "." + ext
-	}
-
-	url, err := storage.CompleteChunk(uploadID, ext, subdir)
+	url, err := storage.CompleteChunk(uploadID, ownerID)
 	if err != nil {
-		response.ServerError(c, "合并失败: "+err.Error())
+		response.BadRequest(c, "上传任务无法完成，请检查分片完整性和文件格式")
 		return
 	}
 

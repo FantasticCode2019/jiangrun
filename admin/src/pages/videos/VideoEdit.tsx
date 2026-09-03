@@ -79,11 +79,9 @@ export default function VideoEdit() {
   const handleUploadVideo = async (file: any) => {
     setUploading(true)
     setUploadProgress(0)
-    try {
-      const res: any = await uploadAPI.video(file, (percent: number) => {
-        setUploadProgress(percent)
-      })
-      form.setFieldValue('video_url', res.data.url)
+	try {
+	  const url = await uploadAPI.chunkUpload(file, 'videos', setUploadProgress)
+	  form.setFieldValue('video_url', url)
       message.success('视频上传成功')
     } catch (err) {
       message.error('视频上传失败')

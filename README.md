@@ -6,7 +6,7 @@
 
 | 层级 | 技术 |
 |------|------|
-| **前台官网** | Next.js 14 + Tailwind CSS + Framer Motion |
+| **前台官网** | Next.js 16 + React 19 + Tailwind CSS |
 | **后台管理** | React 18 + Vite + Ant Design 5 |
 | **后端 API** | Go + Gin + GORM |
 | **数据库** | PostgreSQL 15 |
@@ -40,7 +40,7 @@ jiangrun-web/
 - 📰 新闻管理: 富文本编辑
 - 🛠️ 服务管理: 服务项目配置
 - 📂 分类管理: 多级分类树
-- 🖼️ 轮播图管理: 首页/案例页/视频页轮播
+- 🖼️ 轮播图管理: 首页轮播标题、副标题、图片、链接、显隐和排序
 - 💬 留言管理: 查看/标记已读/删除
 - ⚙️ 网站设置: 基本信息/联系方式/SEO
 
@@ -53,8 +53,8 @@ jiangrun-web/
 ## 快速开始
 
 ### 前置要求
-- Go 1.21+
-- Node.js 18+
+- Go 1.26+
+- Node.js 22+
 - PostgreSQL 15+
 
 ### 1. 启动数据库
@@ -82,8 +82,8 @@ go run main.go
 cd admin
 npm install
 npm run dev
-# 后台运行在 http://localhost:3001
-# 默认账号: admin / admin123
+# 后台运行在 http://localhost:3001/admin/
+# 开发模式首次启动默认账号为 admin / admin123；生产模式禁止默认密码
 ```
 
 ### 4. 启动前台官网
@@ -101,8 +101,11 @@ npm run dev
 ```bash
 cd deploy
 
-# 1) 一键构建并启动所有服务（首次自动生成随机密钥与初始密码到 .env）
-./deploy.sh
+# 1) 生成随机密钥与初始密码
+./deploy.sh init
+# 2) 将正式证书复制为 deploy/certs/fullchain.pem 与 privkey.pem
+# 3) 构建并启动
+./deploy.sh up
 
 # 其他常用命令
 ./deploy.sh start        # 快速启动（不重新构建，更快）
@@ -121,14 +124,13 @@ cd deploy
 > **Windows 用户**：进入 `deploy` 目录后**双击 `deploy.bat`** 即可启动；停止/关闭可双击 `stop.bat`；命令行用法与上面等价（用 `deploy.bat status` 等）。
 
 **访问地址**：部署完成后
-- 前台官网：`http://<服务器IP>/`
-- 后台管理：`http://<服务器IP>:3001`
+- 前台官网：`https://jiangrun.net/`
+- 后台管理：`https://jiangrun.net/admin/`
 - 管理员初始账号 `admin`，初始密码与 JWT 密钥在首次运行时自动生成并打印在终端，请妥善保存，登录后立即在后台修改密码。
 
 **部署说明**
 - `.env` 为首次运行脚本自动生成的随机凭据（数据库密码、JWT 密钥、管理员初始密码），请勿提交到版本库。
-- 后端 API(`8080`) 与前台(`3000`) 不直接暴露端口，仅通过 Nginx(`80`/`HTTP_PORT`)与后台(`3001`)对外，减少攻击面；如需调整对外端口，编辑 `.env` 中的 `HTTP_PORT`。
-- 后台 `3001` 默认监听所有接口以便局域网访问；如需仅本机访问（更安全），将 `docker-compose.yml` 中 admin 的 `ports` 改为 `"127.0.0.1:3001:3001"`。
+- 后端 API、前台和后台均不直接暴露端口；公网只有 Nginx 的 80/443，80 强制跳转 HTTPS。
 - 所有服务已配置健康检查，容器间基于就绪状态依次启动。
 - 一键启动脚本会自动执行安全自检（`../deploy.sh check`），若 .env 中仍使用默认/弱密钥会给出警告并终止。
 
@@ -160,10 +162,8 @@ cd deploy
 | CRUD | /api/v1/admin/categories | 分类管理 |
 | CRUD | /api/v1/admin/banners | 轮播图管理 |
 | POST | /api/v1/admin/upload/image | 图片上传 |
-| POST | /api/v1/admin/upload/video | 视频上传 |
+| POST | /api/v1/admin/upload/chunk/init | 初始化图片/视频分片上传 |
+| POST | /api/v1/admin/upload/chunk | 上传单个分片 |
+| POST | /api/v1/admin/upload/chunk/complete | 校验并完成分片上传 |
 
-## 默认管理员
-- 用户名: `admin`
-- 密码: `admin123`
-
-> ⚠️ 部署到生产环境后请立即修改默认密码和 JWT Secret
+生产上线、证书、云防火墙、WAF/CDN、备份与恢复步骤见 [生产上线清单](deploy/PRODUCTION.md)。

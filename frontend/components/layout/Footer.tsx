@@ -41,7 +41,7 @@ export default function Footer() {
               </div>
             </div>
             <p className="text-sm leading-relaxed text-white/55">
-              北京江润风景园林景观设计有限公司，专注别墅花园、屋顶花园、露台花园设计与施工维护，以匠心营造每一寸庭院雅境。
+			  {settings.site_description || '北京江润风景园林景观设计有限公司，专注别墅花园、屋顶花园、露台花园设计与施工维护，以匠心营造每一寸庭院雅境。'}
             </p>
           </div>
 
@@ -110,6 +110,12 @@ export default function Footer() {
                   </div>
                 </li>
               )}
+			  {settings.email && (
+				<li className="flex items-start gap-3">
+				  <span className="text-accent">@</span>
+				  <a className="text-white/80 hover:text-accent" href={`mailto:${settings.email}`}>{settings.email}</a>
+				</li>
+			  )}
             </ul>
           </div>
         </div>
@@ -119,7 +125,7 @@ export default function Footer() {
       <div className="border-t border-white/10">
         <div className="container-classic py-6 flex flex-col md:flex-row justify-between items-center gap-3">
           <div className="text-white/40 text-sm">
-            © 2005-2024 {settings.site_name || '北京江润风景园林景观设计有限公司'} 版权所有
+            © 2005-{new Date().getFullYear()} {settings.site_name || '北京江润风景园林景观设计有限公司'} 版权所有
           </div>
           <div className="text-white/40 text-sm">
             <a href="http://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-accent transition-colors">

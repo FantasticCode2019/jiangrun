@@ -1,11 +1,15 @@
 package storage
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,141 +18,185 @@ import (
 	"jiangrun-server/config"
 )
 
-// ChunkInit 分片上传初始化：返回本次上传的 upload_id
-func ChunkInit() (string, error) {
-	uploadID := fmt.Sprintf("%d", time.Now().UnixNano())
-	if err := os.MkdirAll(ChunkDir(uploadID), 0755); err != nil {
-		return "", err
-	}
-	return uploadID, nil
+const chunkMetadataFile = "metadata.json"
+
+var uploadIDPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+type ChunkMetadata struct {
+	UploadID   string    `json:"upload_id"`
+	Filename   string    `json:"filename"`
+	Extension  string    `json:"extension"`
+	Subdir     string    `json:"subdir"`
+	TotalSize  int64     `json:"total_size"`
+	ChunkSize  int64     `json:"chunk_size"`
+	ChunkCount int       `json:"chunk_count"`
+	OwnerID    uint      `json:"owner_id"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
-// ChunkDir 某个上传 ID 的分片临时目录
-func ChunkDir(uploadID string) string {
-	return filepath.Join(config.App.Storage.UploadDir, "tmp", uploadID)
-}
-
-// ChunkDirExists 判断某上传的临时目录是否存在（续传复用）
-func ChunkDirExists(uploadID string) bool {
-	if uploadID == "" {
-		return false
+func InitChunkUpload(filename, subdir string, totalSize int64, ownerID uint) (*ChunkMetadata, error) {
+	if !ValidSubdir(subdir) || totalSize <= 0 || totalSize > MaxSizeFor(subdir) {
+		return nil, fmt.Errorf("文件类型或大小不合法")
 	}
-	info, err := os.Stat(ChunkDir(uploadID))
-	return err == nil && info.IsDir()
-}
-
-// SaveChunk 保存一个分片；返回该 upload 已上传的分片数量（用于并发计数/校验）
-func SaveChunk(uploadID string, index int, chunkFile *multipart.FileHeader) error {
-	dir := ChunkDir(uploadID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+	filename = filepath.Base(filename)
+	ext := strings.ToLower(filepath.Ext(filename))
+	if !extensionAllowed(ext, subdir) {
+		return nil, fmt.Errorf("不支持的文件格式")
 	}
-
-	dst := filepath.Join(dir, fmt.Sprintf("chunk_%06d", index))
-
-	// 如果分片已存在则直接覆盖（保证幂等）
-	if err := saveMultipartFile(dst, chunkFile); err != nil {
-		return err
-	}
-	return nil
-}
-
-// UploadedChunks 返回某 upload 已成功上传的分片序号（用于断点续传）
-func UploadedChunks(uploadID string) ([]int, error) {
-	dir := ChunkDir(uploadID)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []int{}, nil
-		}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
 		return nil, err
 	}
-	var idx []int
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "chunk_") {
-			n, e2 := strconv.Atoi(strings.TrimPrefix(e.Name(), "chunk_"))
-			if e2 == nil {
-				idx = append(idx, n)
-			}
-		}
+	chunkSize := ChunkSizeBytes()
+	meta := &ChunkMetadata{
+		UploadID: hex.EncodeToString(buf), Filename: filename, Extension: ext, Subdir: subdir,
+		TotalSize: totalSize, ChunkSize: chunkSize,
+		ChunkCount: int((totalSize + chunkSize - 1) / chunkSize), OwnerID: ownerID, CreatedAt: time.Now().UTC(),
 	}
-	sort.Ints(idx)
-	return idx, nil
+	dir, err := safeChunkDir(meta.UploadID)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dir, 0750); err != nil {
+		return nil, err
+	}
+	if err := writeMetadata(meta); err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
+	return meta, nil
 }
 
-// CompleteChunk 合并分片为最终文件，并按 provider 存储。
-// 返回最终可访问 URL 与文件名。
-func CompleteChunk(uploadID string, ext string, subdir string) (string, error) {
-	idx, err := UploadedChunks(uploadID)
+func ResumeChunkUpload(uploadID, filename, subdir string, totalSize int64, ownerID uint) (*ChunkMetadata, error) {
+	meta, err := readMetadata(uploadID)
+	if err != nil {
+		return nil, err
+	}
+	if meta.OwnerID != ownerID || meta.Filename != filepath.Base(filename) || meta.Subdir != subdir || meta.TotalSize != totalSize {
+		return nil, fmt.Errorf("续传信息不匹配")
+	}
+	if time.Since(meta.CreatedAt) > 24*time.Hour {
+		return nil, fmt.Errorf("续传已过期，请重新上传")
+	}
+	return meta, nil
+}
+
+func SaveChunk(uploadID string, index int, chunkFile *multipart.FileHeader, ownerID uint) error {
+	meta, err := readMetadata(uploadID)
+	if err != nil {
+		return err
+	}
+	if meta.OwnerID != ownerID || index < 0 || index >= meta.ChunkCount {
+		return fmt.Errorf("分片参数不合法")
+	}
+	expected := meta.ChunkSize
+	if index == meta.ChunkCount-1 {
+		expected = meta.TotalSize - int64(index)*meta.ChunkSize
+	}
+	if chunkFile.Size != expected {
+		return fmt.Errorf("分片大小不匹配")
+	}
+	dir, _ := safeChunkDir(uploadID)
+	dst := filepath.Join(dir, fmt.Sprintf("chunk_%06d", index))
+	return saveMultipartFileExact(dst, chunkFile, expected)
+}
+
+func UploadedChunks(uploadID string, ownerID uint) ([]int, error) {
+	meta, err := readMetadata(uploadID)
+	if err != nil {
+		return nil, err
+	}
+	if meta.OwnerID != ownerID {
+		return nil, fmt.Errorf("无权访问该上传任务")
+	}
+	dir, _ := safeChunkDir(uploadID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var indexes []int
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.HasPrefix(entry.Name(), "chunk_") {
+			continue
+		}
+		index, parseErr := strconv.Atoi(strings.TrimPrefix(entry.Name(), "chunk_"))
+		if parseErr == nil && index >= 0 && index < meta.ChunkCount {
+			indexes = append(indexes, index)
+		}
+	}
+	sort.Ints(indexes)
+	return indexes, nil
+}
+
+func CompleteChunk(uploadID string, ownerID uint) (url string, err error) {
+	meta, err := readMetadata(uploadID)
 	if err != nil {
 		return "", err
 	}
-	if len(idx) == 0 {
-		return "", fmt.Errorf("没有可合并的分片")
+	if meta.OwnerID != ownerID {
+		return "", fmt.Errorf("无权访问该上传任务")
 	}
-
-	finalName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
-	uploadDir := config.App.Storage.UploadDir
-
-	// 合并且存为最终目标（本地先写好）
-	finalDir := filepath.Join(uploadDir, subdir)
-	if err := os.MkdirAll(finalDir, 0755); err != nil {
+	indexes, err := UploadedChunks(uploadID, ownerID)
+	if err != nil || len(indexes) != meta.ChunkCount {
+		return "", fmt.Errorf("分片不完整")
+	}
+	for index, actual := range indexes {
+		if index != actual {
+			return "", fmt.Errorf("分片序号不连续")
+		}
+	}
+	finalName, err := randomName(meta.Extension)
+	if err != nil {
+		return "", err
+	}
+	finalDir := filepath.Join(config.App.Storage.UploadDir, meta.Subdir)
+	if err := os.MkdirAll(finalDir, 0750); err != nil {
 		return "", err
 	}
 	localPath := filepath.Join(finalDir, finalName)
-	merged, err := os.Create(localPath)
+	merged, err := os.OpenFile(localPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0640)
 	if err != nil {
 		return "", err
 	}
-
-	for _, i := range idx {
-		cp, err := os.Open(filepath.Join(ChunkDir(uploadID), fmt.Sprintf("chunk_%06d", i)))
+	defer func() {
+		_ = merged.Close()
 		if err != nil {
-			merged.Close()
-			os.Remove(localPath)
-			return "", err
+			_ = os.Remove(localPath)
 		}
-		if _, err := io.Copy(merged, cp); err != nil {
-			cp.Close()
-			merged.Close()
-			os.Remove(localPath)
-			return "", err
+	}()
+	dir, _ := safeChunkDir(uploadID)
+	var total int64
+	for index := 0; index < meta.ChunkCount; index++ {
+		partPath := filepath.Join(dir, fmt.Sprintf("chunk_%06d", index))
+		part, openErr := os.Open(partPath)
+		if openErr != nil {
+			return "", openErr
 		}
-		cp.Close()
+		copied, copyErr := io.Copy(merged, io.LimitReader(part, meta.ChunkSize+1))
+		_ = part.Close()
+		if copyErr != nil {
+			return "", copyErr
+		}
+		total += copied
+		if total > meta.TotalSize {
+			return "", fmt.Errorf("合并文件超过声明大小")
+		}
 	}
-	merged.Close()
-
-	// 若配置了 OSS，则上传到 OSS（此时代码路径留 SDK 调用）
-	url, err := StoreFinal(localPath, finalName, subdir)
+	if total != meta.TotalSize {
+		return "", fmt.Errorf("合并文件大小不匹配")
+	}
+	if err = merged.Close(); err != nil {
+		return "", err
+	}
+	if err = ValidateFile(localPath, meta.Subdir, meta.Extension); err != nil {
+		return "", err
+	}
+	url, err = StoreFinal(localPath, finalName, meta.Subdir)
 	if err != nil {
 		return "", err
 	}
-
-	// 清理分片临时目录
-	os.RemoveAll(ChunkDir(uploadID))
+	_ = os.RemoveAll(dir)
 	return url, nil
-}
-
-// StoreFinal 按 provider 决定复用本地文件 or 上传到 OSS。
-// provider=local：返回本地 URL，文件保留在 uploadDir 中。
-func StoreFinal(localPath, filename, subdir string) (string, error) {
-	provider := config.App.Storage.Provider
-	if provider == "oss" {
-		// 交给 OSS provider 上传；上传成功后可选删除本地缓存
-		key := fmt.Sprintf("%s/%s", normalizeKey(subdir), filename)
-		if err := ossUploadFile(key, localPath); err != nil {
-			return "", err
-		}
-		// 本地不再保留（避免双份占用）
-		os.Remove(localPath)
-		return ossPublicURL(key), nil
-	}
-	// local：直接使用本地相对路径
-	return fmt.Sprintf("/uploads/%s/%s", subdir, filename), nil
-}
-
-func normalizeKey(subdir string) string {
-	return strings.Trim(subdir, "/")
 }
 
 func ChunkSizeBytes() int64 {
@@ -159,7 +207,6 @@ func ChunkSizeBytes() int64 {
 	return mb * 1024 * 1024
 }
 
-// MaxSizeFor 返回某类型(subdir)允许的最大字节数
 func MaxSizeFor(subdir string) int64 {
 	mb := config.App.Storage.MaxImageSize
 	if subdir == "videos" {
@@ -171,18 +218,89 @@ func MaxSizeFor(subdir string) int64 {
 	return mb * 1024 * 1024
 }
 
-// 大文件支持：把 multipart.FileHeader 写入目标路径
-func saveMultipartFile(dst string, fh *multipart.FileHeader) error {
-	src, err := fh.Open()
+func CleanupExpiredChunks(maxAge time.Duration) error {
+	root := filepath.Join(config.App.Storage.UploadDir, "tmp")
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !uploadIDPattern.MatchString(entry.Name()) {
+			continue
+		}
+		info, statErr := entry.Info()
+		if statErr == nil && time.Since(info.ModTime()) > maxAge {
+			dir, _ := safeChunkDir(entry.Name())
+			_ = os.RemoveAll(dir)
+		}
+	}
+	return nil
+}
+
+func safeChunkDir(uploadID string) (string, error) {
+	if !uploadIDPattern.MatchString(uploadID) {
+		return "", fmt.Errorf("upload_id 不合法")
+	}
+	return filepath.Join(config.App.Storage.UploadDir, "tmp", uploadID), nil
+}
+
+func readMetadata(uploadID string) (*ChunkMetadata, error) {
+	dir, err := safeChunkDir(uploadID)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, chunkMetadataFile))
+	if err != nil {
+		return nil, fmt.Errorf("上传任务不存在或已过期")
+	}
+	var meta ChunkMetadata
+	if err := json.Unmarshal(data, &meta); err != nil || meta.UploadID != uploadID {
+		return nil, fmt.Errorf("上传任务元数据损坏")
+	}
+	return &meta, nil
+}
+
+func writeMetadata(meta *ChunkMetadata) error {
+	dir, err := safeChunkDir(meta.UploadID)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, chunkMetadataFile), data, 0600)
+}
+
+func saveMultipartFileExact(dst string, header *multipart.FileHeader, expected int64) (err error) {
+	src, err := header.Open()
 	if err != nil {
 		return err
 	}
 	defer src.Close()
-	out, err := os.Create(dst)
+	tmp := dst + ".part"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-	_, err = io.Copy(out, src)
-	return err
+	defer func() {
+		_ = out.Close()
+		if err != nil {
+			_ = os.Remove(tmp)
+		}
+	}()
+	written, err := io.Copy(out, io.LimitReader(src, expected+1))
+	if err != nil {
+		return err
+	}
+	if written != expected {
+		return fmt.Errorf("分片实际大小不匹配")
+	}
+	if err = out.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dst)
 }

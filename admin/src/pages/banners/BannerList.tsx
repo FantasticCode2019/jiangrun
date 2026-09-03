@@ -79,6 +79,7 @@ export default function BannerList() {
         <Form form={form} layout="vertical" onFinish={handleSave}
           initialValues={{ position: 'home', status: 1, sort_order: 0 }}>
           <Form.Item name="title" label="标题"><Input /></Form.Item>
+          <Form.Item name="subtitle" label="副标题"><Input maxLength={500} showCount /></Form.Item>
           <Form.Item label="图片">
             <Space>
               <Upload showUploadList={false} beforeUpload={handleUpload} accept="image/*"><Button>上传</Button></Upload>
@@ -90,8 +91,6 @@ export default function BannerList() {
             <Form.Item name="position" label="位置">
               <Select options={[
                 { value: 'home', label: '首页' },
-                { value: 'case', label: '案例页' },
-                { value: 'video', label: '视频页' },
               ]} />
             </Form.Item>
             <Form.Item name="sort_order" label="排序"><InputNumber min={0} /></Form.Item>

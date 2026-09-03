@@ -53,7 +53,11 @@ func Page(c *gin.Context, list interface{}, total int64, page, size int) {
 
 // Error 错误响应
 func Error(c *gin.Context, code int, message string) {
-	c.JSON(http.StatusOK, Response{
+	status := code
+	if status < 400 || status > 599 {
+		status = http.StatusInternalServerError
+	}
+	c.JSON(status, Response{
 		Code:    code,
 		Message: message,
 	})
@@ -70,6 +74,10 @@ func Unauthorized(c *gin.Context, message string) {
 		Code:    401,
 		Message: message,
 	})
+}
+
+func TooManyRequests(c *gin.Context, message string) {
+	c.JSON(http.StatusTooManyRequests, Response{Code: http.StatusTooManyRequests, Message: message})
 }
 
 // NotFound 404 错误

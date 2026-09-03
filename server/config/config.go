@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -16,8 +17,9 @@ type AppConfig struct {
 }
 
 type ServerConfig struct {
-	Port int    `mapstructure:"port"`
-	Mode string `mapstructure:"mode"` // debug, release, test
+	Port           int    `mapstructure:"port"`
+	Mode           string `mapstructure:"mode"` // debug, release, test
+	AllowedOrigins string `mapstructure:"allowed_origins"`
 }
 
 type DatabaseConfig struct {
@@ -35,12 +37,12 @@ type JWTConfig struct {
 }
 
 type StorageConfig struct {
-	UploadDir    string     `mapstructure:"upload_dir"`
-	MaxImageSize int64      `mapstructure:"max_image_size"` // MB
-	MaxVideoSize int64      `mapstructure:"max_video_size"` // MB
-	ChunkSize    int64      `mapstructure:"chunk_size"`     // MB，分片大小
-	Provider     string     `mapstructure:"provider"`       // local | oss
-	OSS          OSSConfig  `mapstructure:"oss"`
+	UploadDir    string    `mapstructure:"upload_dir"`
+	MaxImageSize int64     `mapstructure:"max_image_size"` // MB
+	MaxVideoSize int64     `mapstructure:"max_video_size"` // MB
+	ChunkSize    int64     `mapstructure:"chunk_size"`     // MB，分片大小
+	Provider     string    `mapstructure:"provider"`       // local | oss
+	OSS          OSSConfig `mapstructure:"oss"`
 }
 
 // OSSConfig 阿里云对象存储配置（provider=oss 时使用）
@@ -85,6 +87,7 @@ func Load() {
 	viper.SetEnvPrefix("SERVER")
 	viper.BindEnv("server.port", "SERVER_PORT")
 	viper.BindEnv("server.mode", "SERVER_MODE")
+	viper.BindEnv("server.allowed_origins", "CORS_ALLOWED_ORIGINS")
 
 	viper.AutomaticEnv()
 
@@ -93,6 +96,9 @@ func Load() {
 		log.Fatalf("Failed to unmarshal config: %v", err)
 	}
 
+	if err := validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
 	if App.JWT.Secret == "jiangrun-secret-key-change-in-production" {
 		log.Println("Warning: using default JWT secret, set JWT_SECRET for production")
 	}
@@ -104,14 +110,37 @@ func Load() {
 		uploadDir = filepath.Join(wd, uploadDir)
 		App.Storage.UploadDir = uploadDir
 	}
-	os.MkdirAll(filepath.Join(uploadDir, "images"), 0755)
-	os.MkdirAll(filepath.Join(uploadDir, "videos"), 0755)
+	if err := os.MkdirAll(filepath.Join(uploadDir, "images"), 0750); err != nil {
+		log.Fatalf("Failed to create image upload directory: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(uploadDir, "videos"), 0750); err != nil {
+		log.Fatalf("Failed to create video upload directory: %v", err)
+	}
+}
+
+func validate() error {
+	if App.Server.Mode != "debug" && App.Server.Mode != "release" && App.Server.Mode != "test" {
+		return fmt.Errorf("SERVER_MODE must be debug, release, or test")
+	}
+	if App.Server.Mode == "release" {
+		if App.JWT.Secret == "jiangrun-secret-key-change-in-production" || len(App.JWT.Secret) < 32 {
+			return fmt.Errorf("JWT_SECRET must be a random value of at least 32 characters in release mode")
+		}
+		if App.Database.Password == "" || App.Database.Password == "postgres" {
+			return fmt.Errorf("DATABASE_PASSWORD must be changed in release mode")
+		}
+	}
+	if App.JWT.ExpireHour < 1 || App.JWT.ExpireHour > 24 {
+		return fmt.Errorf("JWT_EXPIRE_HOUR must be between 1 and 24")
+	}
+	return nil
 }
 
 func setDefaults() {
 	// Server defaults
 	viper.SetDefault("server.port", 8080)
 	viper.SetDefault("server.mode", "debug")
+	viper.SetDefault("server.allowed_origins", "http://localhost:3000,http://localhost:3001")
 
 	// Database defaults
 	viper.SetDefault("database.host", "localhost")
@@ -127,8 +156,8 @@ func setDefaults() {
 
 	// Storage defaults
 	viper.SetDefault("storage.upload_dir", "./uploads")
-	viper.SetDefault("storage.max_image_size", 10)   // 10MB
-	viper.SetDefault("storage.max_video_size", 500)  // 500MB
-	viper.SetDefault("storage.chunk_size", 8)        // 8MB/分片
-	viper.SetDefault("storage.provider", "local")    // local | oss
+	viper.SetDefault("storage.max_image_size", 10)  // 10MB
+	viper.SetDefault("storage.max_video_size", 500) // 500MB
+	viper.SetDefault("storage.chunk_size", 8)       // 8MB/分片
+	viper.SetDefault("storage.provider", "local")   // local | oss
 }

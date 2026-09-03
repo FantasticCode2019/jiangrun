@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.26.8-alpine AS builder
 
 WORKDIR /app
 
@@ -8,15 +8,20 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o server .
 
-FROM alpine:latest
+FROM alpine:3.22
 
 WORKDIR /app
 
 COPY --from=builder /app/server .
 COPY --from=builder /app/config ./config
 
-# 创建必要的目录
-RUN mkdir -p /app/logs /app/uploads/images /app/uploads/videos
+# 固定非 root UID；新数据卷会继承目录所有权。
+RUN apk add --no-cache ca-certificates \
+  && addgroup -S -g 10001 app && adduser -S -D -H -u 10001 -G app app \
+  && mkdir -p /app/uploads/images /app/uploads/videos /app/uploads/tmp \
+  && chown -R app:app /app
+
+USER app
 
 EXPOSE 8080
 

@@ -79,56 +79,55 @@ export default function HeroBanner() {
         />
       ))}
 
-      {/* Content —— 居中经典排版 */}
-      <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-6">
-        {/* 顶部装饰线 */}
-        <div className="mb-8 flex items-center justify-center gap-3">
-          <span className="h-px w-16 bg-accent/70" />
-          <span className="w-2 h-2 rotate-45 bg-accent" />
-          <span className="h-px w-16 bg-accent/70" />
-        </div>
+      <div className="hero-art" aria-hidden="true">
+        <span className="hero-orbit hero-orbit-one" />
+        <span className="hero-orbit hero-orbit-two" />
+        <span className="hero-mountain hero-mountain-one" />
+        <span className="hero-mountain hero-mountain-two" />
+      </div>
 
-        <div className="text-accent tracking-[0.45em] text-sm mb-6 animate-slide-up">
-          JIE · JIN · YUAN · LIN
-        </div>
+      {/* Content —— 更现代的左对齐编辑式排版 */}
+      <div className="relative z-10 h-full container-classic flex items-center pt-20 pb-32">
+        <div className="hero-copy max-w-4xl">
+          <div className="hero-eyebrow animate-slide-up">
+            <span className="hero-eyebrow-dot" />
+            SINCE 2005 · BEIJING
+          </div>
 
-        <h1
-          className="font-serif text-4xl md:text-6xl lg:text-7xl text-white font-bold leading-tight mb-6 animate-slide-up"
-          style={{ letterSpacing: '0.08em', textShadow: '0 4px 30px rgba(0,0,0,0.35)' }}
-        >
-          {slide.title}
-        </h1>
+          <div className="text-accent/90 tracking-[0.42em] text-xs md:text-sm mb-5 animate-slide-up">
+            JIANGRUN LANDSCAPE
+          </div>
 
-        <p
-          className="text-white/85 text-lg md:text-xl mb-12 tracking-[0.2em] animate-slide-up"
-          style={{ textShadow: '0 2px 12px rgba(0,0,0,0.4)' }}
-        >
-          {slide.subtitle}
-        </p>
+          <h1 className="hero-title animate-slide-up">{slide.title}</h1>
 
-        {/* 分隔线 */}
-        <div className="w-24 h-px mb-12 animate-fade-in" style={{ background: 'var(--accent)' }} />
+          <p className="hero-subtitle animate-slide-up">{slide.subtitle}</p>
 
-        <div className="flex flex-wrap gap-5 justify-center animate-slide-up" style={{ animationDelay: '0.4s' }}>
-          <Link href="/villa" className="btn-classic">
-            浏览设计案例
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-            </svg>
-          </Link>
-          <Link href="/contact" className="btn-dark">
-            在线咨询
-          </Link>
+          <div className="flex flex-wrap gap-4 animate-slide-up" style={{ animationDelay: '0.25s' }}>
+            <Link href={slide.link || '/villa'} className="btn-hero-primary">
+              浏览设计案例
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M5 12h14m-5-5 5 5-5 5" />
+              </svg>
+            </Link>
+            <Link href="/contact" className="btn-hero-ghost">预约设计咨询</Link>
+          </div>
         </div>
       </div>
 
+      <div className="hero-trust z-10">
+        <div><strong>20<sup>+</sup></strong><span>年行业沉淀</span></div>
+        <div><strong>设计</strong><span>因地制宜</span></div>
+        <div><strong>施工</strong><span>全程把控</span></div>
+        <div><strong>养护</strong><span>长期服务</span></div>
+      </div>
+
       {/* Slide Indicators */}
-      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-10 flex gap-3">
+      <div className="hero-dots z-20 flex gap-2">
         {slides.map((_, index) => (
           <button
             key={index}
             onClick={() => setCurrent(index)}
-            className="h-[3px] rounded-full transition-all duration-500"
+            className="h-[2px] rounded-full transition-all duration-500"
             style={{
               width: index === current ? '44px' : '16px',
               background: index === current ? 'var(--accent)' : 'rgba(255,255,255,0.35)',
@@ -139,11 +138,6 @@ export default function HeroBanner() {
         ))}
       </div>
 
-      {/* Scroll 提示 */}
-      <div className="absolute bottom-10 right-8 z-10 hidden lg:flex flex-col items-center gap-2 text-white/50" style={{ writingMode: 'vertical-rl' }}>
-        <span className="text-[10px] tracking-[0.4em]">下滑浏览</span>
-        <span className="w-px h-10 bg-gradient-to-b from-white/50 to-transparent" />
-      </div>
     </section>
   )
 }

@@ -13,6 +13,8 @@ var (
 	loginLimiter   = middleware.NewRateLimiter(5, time.Minute)
 	contactLimiter = middleware.NewRateLimiter(5, time.Minute)
 	viewLimiter    = middleware.NewRateLimiter(60, time.Minute)
+	publicLimiter  = middleware.NewRateLimiter(300, time.Minute)
+	adminLimiter   = middleware.NewRateLimiter(600, time.Minute)
 )
 
 func Register(r *gin.Engine) {
@@ -21,9 +23,10 @@ func Register(r *gin.Engine) {
 	{
 		// 公开接口 - 不需要认证
 		public := api.Group("")
+		public.Use(middleware.RateLimit(publicLimiter))
 		{
 			// 认证
-			public.POST("/login", middleware.RateLimit(loginLimiter), handlers.Login)
+			public.POST("/login", middleware.BodyLimit(16<<10), middleware.RateLimit(loginLimiter), handlers.Login)
 
 			// 轮播图
 			public.GET("/banners", handlers.GetBanners)
@@ -54,12 +57,12 @@ func Register(r *gin.Engine) {
 			public.GET("/settings", handlers.GetPublicSettings)
 
 			// 联系留言
-			public.POST("/contact", middleware.RateLimit(contactLimiter), handlers.SubmitContact)
+			public.POST("/contact", middleware.BodyLimit(16<<10), middleware.RateLimit(contactLimiter), handlers.SubmitContact)
 		}
 
 		// 管理接口 - 需要认证
 		admin := api.Group("/admin")
-		admin.Use(middleware.AuthRequired())
+		admin.Use(middleware.RateLimit(adminLimiter), middleware.AuthRequired(), middleware.AdminJSONBodyLimit(2<<20))
 		{
 			// 仪表盘
 			admin.GET("/dashboard", handlers.GetDashboard)
@@ -119,7 +122,6 @@ func Register(r *gin.Engine) {
 
 			// 文件上传
 			admin.POST("/upload/image", handlers.UploadImage)
-			admin.POST("/upload/video", handlers.UploadVideo)
 			// 大文件分片上传（断点续传）
 			admin.POST("/upload/chunk/init", handlers.ChunkInit)
 			admin.POST("/upload/chunk", handlers.ChunkUpload)

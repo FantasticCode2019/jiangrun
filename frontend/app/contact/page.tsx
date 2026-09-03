@@ -52,7 +52,7 @@ export default function ContactPage() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
       ),
-      content: <div className="text-ink">北京顺义区南法信马可汇三号楼一单元901</div>,
+	  content: <div className="text-ink">{settings.design_address || settings.address || '北京顺义区南法信马可汇三号楼一单元901'}</div>,
     },
     {
       label: '工厂地址',
@@ -62,7 +62,7 @@ export default function ContactPage() {
             d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
         </svg>
       ),
-      content: <div className="text-ink">北京顺义区西马各庄农业生态园 B911 栋</div>,
+	  content: <div className="text-ink">{settings.factory_address || '北京顺义区西马各庄农业生态园 B911 栋'}</div>,
     },
     {
       label: '工作时间',
@@ -71,7 +71,7 @@ export default function ContactPage() {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       ),
-      content: <div className="text-ink">周一至周六 9:00 - 18:00</div>,
+	  content: <div className="text-ink">{settings.business_hours || '周一至周六 9:00 - 18:00'}</div>,
     },
   ]
 
@@ -133,23 +133,27 @@ export default function ContactPage() {
                   <div>
                     <label className="block text-sm font-medium text-ink/80 mb-2">您的姓名 *</label>
                     <input type="text" required value={form.name} className={inputCls}
+					  maxLength={50}
                       onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="请输入您的姓名" />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-ink/80 mb-2">联系电话</label>
                       <input type="tel" value={form.phone} className={inputCls}
+						maxLength={20}
                         onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="请输入联系电话" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-ink/80 mb-2">电子邮箱</label>
                       <input type="email" value={form.email} className={inputCls}
+						maxLength={100}
                         onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="请输入电子邮箱" />
                     </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-ink/80 mb-2">留言内容 *</label>
                     <textarea required rows={5} value={form.content} className={`${inputCls} resize-none`}
+					  maxLength={2000}
                       onChange={(e) => setForm({ ...form, content: e.target.value })}
                       placeholder="请描述您的需求，如花园面积、风格偏好、预算等" />
                   </div>
