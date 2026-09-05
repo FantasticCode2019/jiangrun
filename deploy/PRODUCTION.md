@@ -8,6 +8,7 @@
 
 - 安全组入站只开放 `22`（限制为运维固定 IP）、`80`、`443`；不要开放 3000、3001、5432、8080。
 - 域名接入 CDN/WAF，开启 DDoS 防护、Bot 管理、托管规则、登录路径限速；源站防火墙的 80/443 最好只允许 CDN 回源 IP。
+- 按所选 CDN 官方文档配置真实客户端 IP；未校验 CDN 回源地址前，不要直接信任任意访客提交的 `X-Forwarded-For`。
 - 为数据库卷和上传卷配置磁盘监控：使用率 70% 告警、85% 紧急告警。配置主机 CPU、内存、5xx、容器重启次数告警。
 - 生产至少 2 vCPU / 4 GB RAM；有大量视频时应把上传切换到 OSS/CDN，不让视频占满系统盘或挤占源站带宽。
 
@@ -39,6 +40,18 @@ curl -I https://jiangrun.net/admin/
 每天至少执行一次 `pg_dump`，并把数据库备份和上传文件备份复制到不同地域、不可变或版本化对象存储。保留建议：7 份日备、4 份周备、12 份月备。每月至少在隔离环境恢复一次；“有备份”但没有恢复演练不算可用备份。
 
 升级前先备份，再运行构建、测试和漏洞扫描。不要对数据库卷执行 `docker compose down -v`。
+
+每月至少执行一次无缓存重建与镜像复扫（出现严重/高危项时先修复再发布）：
+
+```bash
+./deploy.sh build
+docker scout cves --only-severity critical,high jiangrun-server:latest
+docker scout cves --only-severity critical,high jiangrun-frontend:latest
+docker scout cves --only-severity critical,high jiangrun-admin:latest
+docker scout cves --only-severity critical,high jiangrun-nginx:latest
+docker scout cves --only-severity critical,high jiangrun-postgres:latest
+docker scout cves --only-severity critical,high jiangrun-storage-init:latest
+```
 
 ## 5. 上线验收
 

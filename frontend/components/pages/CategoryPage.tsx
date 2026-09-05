@@ -18,6 +18,15 @@ type GalleryCase = { id: number; title: string; image: string; category_id?: num
 type GalleryVideo = { id: number; title: string; image: string }
 type SubGroup = { label: string; slug: string; items: GalleryCase[] }
 
+const legacyCategoryAliases: Record<string, string> = {
+	villa: 'villa-garden',
+	rooftop: 'rooftop-garden',
+}
+
+function matchesCategory(item: BackendCategory, key: string, fallbackTitle?: string) {
+	return item.slug === key || item.slug === legacyCategoryAliases[key] || item.name === fallbackTitle
+}
+
 /**
  * 栏目通用页（后端驱动）：
  * 不再是全部案例混排平铺，而是按「子菜单 / 子模块」分组展示——
@@ -34,17 +43,12 @@ export default function CategoryPage({ categoryKey }: { categoryKey: string }) {
   // 后端分类树：找到当前栏目父分类
   const topCat = useMemo(() => {
     if (!tree.length) return undefined
-	return tree.find((item) =>
-	  item.slug === categoryKey ||
-	  item.slug.includes(categoryKey) ||
-	  categoryKey.includes(item.slug) ||
-	  item.name === fallback?.title,
-	)
+	return tree.find((item) => matchesCategory(item, categoryKey, fallback?.title))
   }, [tree, categoryKey, fallback?.title])
 
 	const category: Category | undefined = topCat
 	  ? categoryFromBackend(topCat, findFallbackCategory(topCat.slug, topCat.name) || fallback)
-	  : fallback
+	  : undefined
 
   // 拉后端分类树 + 该栏目各子分类下的案例
   useEffect(() => {
@@ -54,12 +58,7 @@ export default function CategoryPage({ categoryKey }: { categoryKey: string }) {
       .then(async (cats: any) => {
         if (!active) return
         setTree(cats || [])
-		const top = (cats || []).find((item: BackendCategory) =>
-		  item.slug === categoryKey ||
-		  item.slug.includes(categoryKey) ||
-		  categoryKey.includes(item.slug) ||
-		  item.name === fallback?.title,
-		)
+		const top = (cats || []).find((item: BackendCategory) => matchesCategory(item, categoryKey, fallback?.title))
 		if (!top) return
         const childCats = top.children || []
         const ids = [top.id].concat(childCats.map((c: any) => c.id))
@@ -97,9 +96,7 @@ export default function CategoryPage({ categoryKey }: { categoryKey: string }) {
 	useEffect(() => {
 	  let active = true
 	  api.getCategories('video').then(async (items: BackendCategory[]) => {
-		const branch = (items || []).find((item) =>
-		  item.slug === categoryKey || item.slug.includes(categoryKey) || categoryKey.includes(item.slug),
-		)
+		const branch = (items || []).find((item) => matchesCategory(item, categoryKey))
 		if (!branch) return
 		const ids = [branch.id, ...(branch.children || []).map((child) => child.id)]
 		const pages = await Promise.all(ids.map((id) =>

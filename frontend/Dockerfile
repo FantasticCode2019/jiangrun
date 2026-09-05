@@ -25,7 +25,11 @@ ENV HOSTNAME=0.0.0.0
 WORKDIR /app
 
 # 非 root 用户提升安全性
-RUN addgroup --system --gid 1001 nodejs \
+# 运行镜像不需要 npm/corepack；删除包管理器同时缩小攻击面并避免其依赖留在镜像中。
+RUN apk upgrade --no-cache \
+  && rm -rf /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+  && addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs
 
 # 静态资源（图片等）

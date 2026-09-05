@@ -209,8 +209,9 @@ switch ($Command.ToLower()) {
     "up" {
         Init-Env
         Check-Env
-        Info "构建并启动所有服务（首次构建约需数分钟）..."
-        docker compose -p jiangrun up -d --build
+        Info "拉取基础镜像、应用系统安全更新并构建（首次构建约需数分钟）..."
+        docker compose -p jiangrun build --pull --no-cache
+        docker compose -p jiangrun up -d
         Ok "服务已启动"
         Wait-Ready
         Show-Summary
@@ -219,8 +220,9 @@ switch ($Command.ToLower()) {
     "run" {
         Init-Env
         Check-Env
-        Info "一键启动：构建并启动所有服务（首次构建约需数分钟）..."
-        docker compose -p jiangrun up -d --build
+        Info "一键启动：拉取基础镜像、应用系统安全更新并构建..."
+        docker compose -p jiangrun build --pull --no-cache
+        docker compose -p jiangrun up -d
         Ok "服务已启动"
         Wait-Ready
         Show-Summary
@@ -237,8 +239,8 @@ switch ($Command.ToLower()) {
     }
     "build" {
         Init-Env
-        Info "构建所有镜像..."
-        docker compose -p jiangrun build
+        Info "拉取基础镜像并无缓存构建所有镜像..."
+        docker compose -p jiangrun build --pull --no-cache
         Ok "镜像构建完成"
     }
     "stop" {

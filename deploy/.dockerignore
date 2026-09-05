@@ -1,0 +1,4 @@
+*
+!nginx.Dockerfile
+!postgres.Dockerfile
+!storage.Dockerfile

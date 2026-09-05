@@ -8,7 +8,9 @@ x-logging: &default-logging
 
 services:
   storage-init:
-    image: alpine:3.22
+    build:
+      context: .
+      dockerfile: storage.Dockerfile
     container_name: jiangrun-storage-init
     user: "0:0"
     command: ["sh", "-c", "mkdir -p /uploads/images /uploads/videos /uploads/tmp && chown -R 10001:10001 /uploads && chmod 0750 /uploads /uploads/images /uploads/videos /uploads/tmp"]
@@ -30,7 +32,9 @@ services:
     network_mode: none
 
   postgres:
-    image: postgres:15-alpine
+    build:
+      context: .
+      dockerfile: postgres.Dockerfile
     container_name: jiangrun-db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -51,6 +55,8 @@ services:
     pids_limit: 200
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - internal
 
@@ -143,7 +149,9 @@ services:
       - internal
 
   nginx:
-    image: nginx:1.28-alpine
+    build:
+      context: .
+      dockerfile: nginx.Dockerfile
     container_name: jiangrun-nginx
     ports:
       - "${HTTP_PORT:-80}:80"

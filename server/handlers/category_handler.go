@@ -25,6 +25,10 @@ type CategoryRequest struct {
 
 var categorySlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var categoryTypes = map[string]bool{"case": true, "video": true, "news": true, "service": true}
+var reservedTopLevelSlugs = map[string]bool{
+	"admin": true, "api": true, "uploads": true, "images": true, "_next": true,
+	"about": true, "cases": true, "contact": true, "news": true, "services": true, "videos": true,
+}
 
 // GetCategoriesByType 根据类型获取分类树 (公开)
 func GetCategoriesByType(c *gin.Context) {
@@ -195,6 +199,9 @@ func validateCategoryRequest(req CategoryRequest, currentID uint) error {
 	}
 	if !categorySlugPattern.MatchString(req.Slug) {
 		return fmt.Errorf("Slug 只能包含小写字母、数字和连字符")
+	}
+	if req.Type == "case" && req.ParentID == nil && reservedTopLevelSlugs[req.Slug] {
+		return fmt.Errorf("该 Slug 与网站固定页面或系统路径冲突")
 	}
 	if req.SortOrder < 0 || req.SortOrder > 100000 {
 		return fmt.Errorf("排序值不合法")

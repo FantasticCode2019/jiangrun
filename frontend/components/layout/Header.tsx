@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSettings } from '@/lib/settings'
 import { api } from '@/lib/api'
-import { categoryFromBackend, getCategories, type BackendCategory } from '@/lib/categories'
+import { categoryFromBackend, type BackendCategory } from '@/lib/categories'
 
 type NavChild = { label: string; href: string }
 type NavItem = { label: string; href: string; en: string; children?: NavChild[] }
@@ -22,20 +22,19 @@ export default function Header() {
   const [openSub, setOpenSub] = useState<string | null>(null)
   const pathname = usePathname()
   const settings = useSettings()
-	const [managedCategories, setManagedCategories] = useState<BackendCategory[] | null>(null)
+	// 栏目必须以后端公开树为准，避免被后台隐藏的栏目在首屏短暂闪现。
+	const [managedCategories, setManagedCategories] = useState<BackendCategory[]>([])
 
 	useEffect(() => {
 		let active = true
 		api.getCategories('case')
 		  .then((items: BackendCategory[]) => active && setManagedCategories(items || []))
-		  .catch(() => active && setManagedCategories(null))
+		  .catch(() => active && setManagedCategories([]))
 		return () => { active = false }
 	}, [])
 
 	const staticNav = useMemo<NavItem[]>(() => {
-		const designCategories = managedCategories === null
-		  ? getCategories()
-		  : managedCategories.map((item) => categoryFromBackend(item, undefined))
+		const designCategories = managedCategories.map((item) => categoryFromBackend(item, undefined))
 		return [
 		  { label: '首页', href: '/', en: 'HOME' },
 		  { label: '关于江润', href: '/about', en: 'ABOUT', children: aboutChildren },

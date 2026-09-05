@@ -26,28 +26,26 @@ const fallbackSlides: Slide[] = [
 ]
 
 export default function HeroBanner() {
-  const [slides, setSlides] = useState<Slide[]>(fallbackSlides)
+  const [slides, setSlides] = useState<Slide[]>([])
   const [current, setCurrent] = useState(0)
 
   useEffect(() => {
     api
       .getBanners('home')
       .then((banners: any[]) => {
-        if (banners && banners.length > 0) {
-          setSlides(
-            banners
-              .filter((b: any) => b.image_url)
-              .map((b: any) => ({
-                image: b.image_url,
-                title: b.title || '',
-                subtitle: b.subtitle || '',
-                link: b.link_url || undefined,
-              })),
-          )
-        }
+        setSlides(
+          (banners || [])
+            .filter((b: any) => b.image_url)
+            .map((b: any) => ({
+              image: b.image_url,
+              title: b.title || '',
+              subtitle: b.subtitle || '',
+              link: b.link_url || undefined,
+            })),
+        )
       })
       .catch(() => {
-        /* 接口失败时保留默认轮播 */
+		setSlides(fallbackSlides)
       })
   }, [])
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { categoryFromBackend, getCategories, type BackendCategory, type Category } from '@/lib/categories'
+import { categoryFromBackend, type BackendCategory, type Category } from '@/lib/categories'
 import Reveal from '@/components/ui/Reveal'
 import { api } from '@/lib/api'
 
@@ -11,7 +11,8 @@ import { api } from '@/lib/api'
  * 后端暂无数据时显示金色纹样占位（不展示任何内建示例图片）。
  */
 export default function CategoriesOverview() {
-  const [categories, setCategories] = useState<Category[]>(getCategories())
+  // 只展示后台当前启用的顶级案例栏目。
+  const [categories, setCategories] = useState<Category[]>([])
   const [covers, setCovers] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -41,9 +42,7 @@ export default function CategoriesOverview() {
         }
 		}),
 	  )
-	}).catch(() => {
-	  /* 接口失败时使用内置栏目元信息兜底 */
-	})
+	}).catch(() => setCategories([]))
     return () => {
       active = false
     }

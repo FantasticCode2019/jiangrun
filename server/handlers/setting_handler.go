@@ -146,16 +146,16 @@ func SubmitContact(c *gin.Context) {
 		Email   string `json:"email" binding:"omitempty,email,max=100"`
 		Content string `json:"content" binding:"required,max=2000"`
 	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请输入有效的姓名、联系方式和留言内容")
+		return
+	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.Phone = strings.TrimSpace(req.Phone)
 	req.Email = strings.TrimSpace(req.Email)
 	req.Content = strings.TrimSpace(req.Content)
 	if req.Name == "" || req.Content == "" || (req.Phone == "" && req.Email == "") {
 		response.BadRequest(c, "请填写姓名、留言内容，并至少提供一种联系方式")
-		return
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "请输入姓名和留言内容")
 		return
 	}
 

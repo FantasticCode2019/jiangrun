@@ -109,7 +109,7 @@ cd deploy
 
 # 其他常用命令
 ./deploy.sh start        # 快速启动（不重新构建，更快）
-./deploy.sh build        # 仅重新构建镜像
+./deploy.sh build        # 拉取安全更新并无缓存重建镜像
 ./deploy.sh check        # 安全检查：校验 .env 密钥是否仍为默认/弱值
 ./deploy.sh init         # 仅生成 .env 配置文件
 ./deploy.sh status       # 查看各服务运行状态

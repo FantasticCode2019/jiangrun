@@ -147,8 +147,9 @@ do_up() {
     exit 1
   fi
   check_port
-  info "构建并启动所有服务（首次构建约需数分钟）..."
-  $COMPOSE up -d --build
+  info "拉取基础镜像、应用系统安全更新并构建（首次构建约需数分钟）..."
+  $COMPOSE build --pull --no-cache
+  $COMPOSE up -d
   ok "服务已启动"
   wait_ready
   print_summary
@@ -172,8 +173,8 @@ do_start() {
 # 仅构建镜像，不启动
 do_build() {
   init_env
-  info "构建所有镜像..."
-  $COMPOSE build
+  info "拉取基础镜像并无缓存构建所有镜像..."
+  $COMPOSE build --pull --no-cache
   ok "镜像构建完成"
 }
 
@@ -225,10 +226,12 @@ do_stats() {
 # ---------- 辅助 ----------
 # 检查对外端口是否被占用，避免冲突
 check_port() {
-	local hp="${HTTPS_PORT:-443}"
+	local hp
+	hp=$(grep '^HTTPS_PORT=' .env | head -1 | cut -d= -f2- || true)
+	[ -n "$hp" ] || hp="443"
   if command -v lsof >/dev/null 2>&1; then
     if lsof -nP -iTCP:"$hp" -sTCP:LISTEN >/dev/null 2>&1; then
-      warn "端口 $hp 已被占用，可在 .env 中修改 HTTP_PORT 后重试"
+      warn "HTTPS 端口 $hp 已被占用，可在 .env 中修改 HTTPS_PORT 后重试"
     fi
   fi
 }
@@ -238,7 +241,9 @@ wait_ready() {
     warn "未安装 curl，跳过健康检查"
     return 0
   fi
-  local hp="${HTTPS_PORT:-443}"
+	local hp
+	hp=$(grep '^HTTPS_PORT=' .env | head -1 | cut -d= -f2- || true)
+	[ -n "$hp" ] || hp="443"
   info "等待服务就绪（经 Nginx 检测 $hp 端口）..."
   for _ in $(seq 1 75); do
 	if curl -ksf "https://127.0.0.1:${hp}/api/v1/settings" >/dev/null 2>&1; then
