@@ -14,11 +14,11 @@ WORKDIR /app
 
 COPY --from=builder /app/server .
 COPY --from=builder /app/config ./config
+# 构建镜像已包含系统 CA；直接复制可避免运行镜像构建时访问软件仓库。
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 # 固定非 root UID；新数据卷会继承目录所有权。
-RUN apk upgrade --no-cache \
-  && apk add --no-cache ca-certificates \
-  && addgroup -S -g 10001 app && adduser -S -D -H -u 10001 -G app app \
+RUN addgroup -S -g 10001 app && adduser -S -D -H -u 10001 -G app app \
   && mkdir -p /app/uploads/images /app/uploads/videos /app/uploads/tmp \
   && chown -R app:app /app
 

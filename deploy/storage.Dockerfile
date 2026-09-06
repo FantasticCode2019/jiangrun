@@ -1,3 +1,3 @@
 FROM alpine:3.24
 
-RUN apk upgrade --no-cache
+# 仅用于初始化上传目录；直接使用随 --pull 刷新的官方基础镜像。

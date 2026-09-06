@@ -1,5 +1,4 @@
-FROM nginx:1.30.4-alpine3.24
+FROM nginx:1.30.4-alpine3.24-slim
 
-# 边缘反向代理只保留核心 Nginx 能力；构建时应用 Alpine 安全更新。
-RUN apk upgrade --no-cache \
-  && apk del --no-cache curl nginx-module-acme nginx-module-geoip nginx-module-image-filter nginx-module-njs nginx-module-xslt
+# 使用官方 slim 运行镜像，不在构建时访问 Alpine 软件仓库。
+# deploy.sh 会通过 --pull 获取该固定版本标签的最新安全重建。

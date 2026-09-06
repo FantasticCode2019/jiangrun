@@ -147,7 +147,7 @@ do_up() {
     exit 1
   fi
   check_port
-  info "拉取基础镜像、应用系统安全更新并构建（首次构建约需数分钟）..."
+  info "拉取最新官方基础镜像并构建（首次构建约需数分钟）..."
   $COMPOSE build --pull --no-cache
   $COMPOSE up -d
   ok "服务已启动"
