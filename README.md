@@ -85,6 +85,13 @@ jiangrun-web/
 
 首次运行会生成权限为 `600` 的 `.env.development.local`，其中包含独立的开发数据库密码、JWT 密钥和管理员初始密码。该文件已被 Git 忽略。
 
+Windows 10/11 可直接双击：
+
+- `dev-start.bat`：一键安装依赖、启动数据库/API/前台/后台并打开浏览器。
+- `dev-stop.bat`：一键停止全部开发服务并保留开发数据库数据。
+
+Windows 版本需要先安装并启动 Docker Desktop，同时安装 Node.js 22+ 和 Go 1.26+。
+
 ### 生产环境
 
 生产环境必须通过生产脚本执行，启动前会校验强密码、域名、CORS 和 TLS 证书：
