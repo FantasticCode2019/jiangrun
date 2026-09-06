@@ -21,3 +21,7 @@ Thumbs.db
 # Env
 .env
 .env.local
+.env.development.local
+
+# Local development runtime files
+.runtime/

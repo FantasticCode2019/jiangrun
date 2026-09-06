@@ -55,71 +55,59 @@ jiangrun-web/
 ### 前置要求
 - Go 1.26+
 - Node.js 22+
-- PostgreSQL 15+
+- Docker（开发数据库与生产部署）
 
-### 1. 启动数据库
+### 本地开发环境
+
+开发脚本会自动创建独立 PostgreSQL 容器、安装缺失依赖并启动三个应用。数据库仅监听本机 `127.0.0.1`，不会使用生产数据卷。
+
 ```bash
-# 使用 Docker
-docker run -d --name jiangrun-db \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=jiangrun \
-  -p 5432:5432 \
-  postgres:15-alpine
+./dev.sh up
 ```
 
-### 2. 启动后端 API
+启动后访问：
+
+- 前台：`http://localhost:3000`
+- 后台：`http://localhost:3001/admin/`
+- API：`http://localhost:8080/api/v1`
+
+常用开发命令：
+
 ```bash
-cd server
-# 修改 config/config.yaml 中的数据库配置
-go mod tidy
-go run main.go
-# API 运行在 http://localhost:8080
+./dev.sh status
+./dev.sh logs server
+./dev.sh restart
+./dev.sh test
+./dev.sh stop       # 停止服务并保留开发数据
+./dev.sh down       # 移除开发容器并保留数据卷
+./dev.sh clean      # 删除开发数据库，需输入 yes 确认
 ```
 
-### 3. 启动后台管理
-```bash
-cd admin
-npm install
-npm run dev
-# 后台运行在 http://localhost:3001/admin/
-# 开发模式首次启动默认账号为 admin / admin123；生产模式禁止默认密码
-```
+首次运行会生成权限为 `600` 的 `.env.development.local`，其中包含独立的开发数据库密码、JWT 密钥和管理员初始密码。该文件已被 Git 忽略。
 
-### 4. 启动前台官网
-```bash
-cd frontend
-npm install
-npm run dev
-# 官网运行在 http://localhost:3000
-```
+### 生产环境
 
-### Docker Compose 一键部署
-
-`deploy/` 提供 Linux/macOS 的 `deploy.sh` 与 Windows 的 `deploy.bat`（底层调用 `deploy.ps1`），跨平台一键启动。
+生产环境必须通过生产脚本执行，启动前会校验强密码、域名、CORS 和 TLS 证书：
 
 ```bash
-cd deploy
-
 # 1) 生成随机密钥与初始密码
-./deploy.sh init
+./production.sh init
 # 2) 将正式证书复制为 deploy/certs/fullchain.pem 与 privkey.pem
-# 3) 构建并启动
-./deploy.sh up
+# 3) 运行上线检查并启动
+./production.sh check
+./production.sh up
 
 # 其他常用命令
-./deploy.sh start        # 快速启动（不重新构建，更快）
-./deploy.sh build        # 拉取安全更新并无缓存重建镜像
-./deploy.sh check        # 安全检查：校验 .env 密钥是否仍为默认/弱值
-./deploy.sh init         # 仅生成 .env 配置文件
-./deploy.sh status       # 查看各服务运行状态
-./deploy.sh logs server  # 查看后端日志（可指定服务: postgres / frontend / admin / nginx）
-./deploy.sh stats        # 查看资源占用
-./deploy.sh restart      # 重启（不重新构建）
-./deploy.sh down         # 停止并移除容器（保留数据卷）
-./deploy.sh stop         # 停止容器（保留容器与数据）
-./deploy.sh clean        # ⚠️ 彻底清理容器、镜像与数据卷（会删数据库，需输入 yes 确认）
+./production.sh start
+./production.sh build
+./production.sh status
+./production.sh logs server
+./production.sh stats
+./production.sh restart
+./production.sh down
 ```
+
+`deploy/deploy.sh` 仍可直接使用；根目录的 `production.sh` 是更明确的生产统一入口。Windows 用户继续使用 `deploy/deploy.bat`。
 
 > **Windows 用户**：进入 `deploy` 目录后**双击 `deploy.bat`** 即可启动；停止/关闭可双击 `stop.bat`；命令行用法与上面等价（用 `deploy.bat status` 等）。
 
