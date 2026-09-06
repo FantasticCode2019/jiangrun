@@ -119,16 +119,24 @@ check_prerequisites() {
   detect_compose
 }
 
+install_node_dependencies() {
+  local directory="$1" label="$2" lock_checksum stamp_file installed_checksum=""
+  stamp_file="$directory/node_modules/.jiangrun-package-lock.cksum"
+  lock_checksum="$(cksum "$directory/package-lock.json")"
+  if [ -f "$stamp_file" ]; then
+    installed_checksum="$(cat "$stamp_file" 2>/dev/null || true)"
+  fi
+  if [ ! -d "$directory/node_modules" ] || [ "$installed_checksum" != "$lock_checksum" ]; then
+    info "安装${label}依赖（首次运行或 package-lock.json 已变化）..."
+    (cd "$directory" && npm ci)
+    printf '%s\n' "$lock_checksum" >"$stamp_file"
+  fi
+}
+
 install_dependencies() {
   check_prerequisites
-  if [ ! -d "$PROJECT_DIR/frontend/node_modules" ]; then
-    info "安装前台依赖..."
-    (cd "$PROJECT_DIR/frontend" && npm ci)
-  fi
-  if [ ! -d "$PROJECT_DIR/admin/node_modules" ]; then
-    info "安装后台依赖..."
-    (cd "$PROJECT_DIR/admin" && npm ci)
-  fi
+  install_node_dependencies "$PROJECT_DIR/frontend" "前台"
+  install_node_dependencies "$PROJECT_DIR/admin" "后台"
   info "下载 Go 依赖..."
   (cd "$PROJECT_DIR/server" && GOPROXY="$DEV_GOPROXY" go mod download)
   ok "开发依赖已就绪"
@@ -246,11 +254,20 @@ start_apps() {
     CORS_ALLOWED_ORIGINS="$DEV_CORS_ALLOWED_ORIGINS" \
     "$BIN_DIR/jiangrun-server"
 
-  run_service frontend "$PROJECT_DIR/frontend" env \
-    API_URL="http://127.0.0.1:${DEV_SERVER_PORT}" \
-    NEXT_TELEMETRY_DISABLED=1 \
-    "$PROJECT_DIR/frontend/node_modules/.bin/next" dev \
-    --webpack --hostname 127.0.0.1 --port "$DEV_FRONTEND_PORT"
+  if "$PROJECT_DIR/frontend/node_modules/.bin/next" dev --help 2>&1 | grep -q -- '--webpack'; then
+    run_service frontend "$PROJECT_DIR/frontend" env \
+      API_URL="http://127.0.0.1:${DEV_SERVER_PORT}" \
+      NEXT_TELEMETRY_DISABLED=1 \
+      "$PROJECT_DIR/frontend/node_modules/.bin/next" dev \
+      --webpack --hostname 127.0.0.1 --port "$DEV_FRONTEND_PORT"
+  else
+    warn "当前 Next.js 不支持 --webpack，使用该版本默认的开发编译器"
+    run_service frontend "$PROJECT_DIR/frontend" env \
+      API_URL="http://127.0.0.1:${DEV_SERVER_PORT}" \
+      NEXT_TELEMETRY_DISABLED=1 \
+      "$PROJECT_DIR/frontend/node_modules/.bin/next" dev \
+      --hostname 127.0.0.1 --port "$DEV_FRONTEND_PORT"
+  fi
 
   run_service admin "$PROJECT_DIR/admin" env \
     VITE_SITE_URL="http://127.0.0.1:${DEV_FRONTEND_PORT}" \
