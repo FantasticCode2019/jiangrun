@@ -9,6 +9,18 @@ RUNTIME_DIR="${PROJECT_DIR}/.runtime/dev"
 LOG_DIR="${RUNTIME_DIR}/logs"
 BIN_DIR="${RUNTIME_DIR}/bin"
 NEXT_ENV_BACKUP="${RUNTIME_DIR}/next-env.d.ts.before-dev"
+ENV_CHECKER="${PROJECT_DIR}/scripts/check-environment.sh"
+
+# Homebrew 的版本化 Node/OpenSSL 可能是 keg-only，启动时主动加入当前脚本 PATH。
+if [ "$(uname -s)" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
+  for formula in node@22 openssl@3 curl; do
+    formula_prefix="$(brew --prefix "$formula" 2>/dev/null || true)"
+    if [ -n "$formula_prefix" ] && [ -d "$formula_prefix/bin" ]; then
+      PATH="$formula_prefix/bin:$PATH"
+    fi
+  done
+  export PATH
+fi
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
@@ -106,17 +118,11 @@ require_command() {
 }
 
 check_prerequisites() {
-  local failed=0
-  require_command docker || failed=1
-  require_command go || failed=1
-  require_command node || failed=1
-  require_command npm || failed=1
-  [ "$failed" = "0" ] || exit 1
-  if ! docker info >/dev/null 2>&1; then
-    err "Docker daemon 未运行"
+  if [ ! -x "$ENV_CHECKER" ]; then
+    err "环境检查脚本不存在或不可执行：$ENV_CHECKER"
     exit 1
   fi
-  detect_compose
+  "$ENV_CHECKER" development
 }
 
 install_node_dependencies() {
@@ -134,7 +140,6 @@ install_node_dependencies() {
 }
 
 install_dependencies() {
-  check_prerequisites
   install_node_dependencies "$PROJECT_DIR/frontend" "前台"
   install_node_dependencies "$PROJECT_DIR/admin" "后台"
   info "下载 Go 依赖..."
@@ -432,6 +437,7 @@ do_check() {
 
 do_test() {
   load_env
+  check_prerequisites
   install_dependencies
   info "运行 Go 测试..."
   (cd "$PROJECT_DIR/server" && GOPROXY="$DEV_GOPROXY" go test ./...)
@@ -470,6 +476,7 @@ usage() {
   logs [服务] 查看日志：server/frontend/admin/postgres/all
   install     安装 Node 与 Go 依赖
   check       检查本机开发工具和 Compose 配置
+  install-tools 尝试使用 Homebrew 自动安装缺失开发工具
   test        运行 Go 测试并构建前台、后台
   init        仅生成本地开发配置
   clean       删除开发数据库、容器和运行日志（需确认）
@@ -487,8 +494,9 @@ case "${1:-help}" in
   down) do_down ;;
   status|ps) do_status ;;
   logs) shift; do_logs "${1:-all}" ;;
-  install) load_env; install_dependencies ;;
+  install) load_env; check_prerequisites; install_dependencies ;;
   check|doctor) do_check ;;
+  install-tools) "$ENV_CHECKER" development --install ;;
   test) do_test ;;
   init) init_env ;;
   clean) do_clean ;;

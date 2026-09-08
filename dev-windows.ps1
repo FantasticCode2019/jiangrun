@@ -18,8 +18,14 @@ $RuntimeDir = Join-Path $ProjectDir ".runtime\dev-windows"
 $LogDir = Join-Path $RuntimeDir "logs"
 $BinDir = Join-Path $RuntimeDir "bin"
 $NextEnvBackup = Join-Path $RuntimeDir "next-env.d.ts.before-dev"
+$EnvironmentChecker = Join-Path $ProjectDir "scripts\check-environment.ps1"
 $script:DevConfig = @{}
 $script:ComposeMode = ""
+
+if (-not (Test-Path $EnvironmentChecker)) {
+    throw "环境检查脚本不存在：$EnvironmentChecker"
+}
+. $EnvironmentChecker
 
 function Get-RandomHex([int]$ByteCount) {
     $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
@@ -134,9 +140,7 @@ function Invoke-Compose {
 }
 
 function Assert-Prerequisites {
-    foreach ($name in @("node", "npm", "go", "docker")) {
-        if (-not (Test-Command $name)) { throw "缺少命令：$name" }
-    }
+    Assert-JiangrunEnvironment -Profile Development
     Initialize-Compose
 }
 

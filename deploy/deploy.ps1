@@ -16,6 +16,22 @@ function Err  { Write-Host "[ERROR] $args" -ForegroundColor Red }
 $DeployDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $DeployDir
 
+$EnvironmentChecker = Join-Path (Split-Path -Parent $DeployDir) "scripts\check-environment.ps1"
+if ($Command.ToLower() -in @("up", "run", "start", "check")) {
+    if (-not (Test-Path $EnvironmentChecker)) {
+        Err "环境检查脚本不存在：$EnvironmentChecker"
+        exit 1
+    }
+    . $EnvironmentChecker
+    try {
+        Assert-JiangrunEnvironment -Profile Production
+    }
+    catch {
+        Err $_.Exception.Message
+        exit 1
+    }
+}
+
 # ---------- 环境检查 ----------
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Err "未检测到 Docker，请先安装 Docker Desktop："

@@ -13,6 +13,30 @@ err()  { echo -e "${RED}[ERROR]${NC} $*"; }
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DEPLOY_DIR"
 
+# 优先使用 Homebrew 安装的新版 OpenSSL/curl（macOS 系统版本可能缺少 checkhost）。
+if [ "$(uname -s)" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
+  for formula in openssl@3 curl; do
+    formula_prefix="$(brew --prefix "$formula" 2>/dev/null || true)"
+    if [ -n "$formula_prefix" ] && [ -d "$formula_prefix/bin" ]; then
+      PATH="$formula_prefix/bin:$PATH"
+    fi
+  done
+  export PATH
+fi
+
+# up/start/check 在执行任何生产操作前，先检查 Docker、Compose、curl 与 OpenSSL。
+DEPLOY_COMMAND="${1:-up}"
+ENV_CHECKER="${DEPLOY_DIR}/../scripts/check-environment.sh"
+case "$DEPLOY_COMMAND" in
+  up|start|check)
+    if [ ! -x "$ENV_CHECKER" ]; then
+      err "环境检查脚本不存在或不可执行：$ENV_CHECKER"
+      exit 1
+    fi
+    "$ENV_CHECKER" production
+    ;;
+esac
+
 # ---------- 环境检查 ----------
 if ! command -v docker >/dev/null 2>&1; then
   err "未检测到 Docker，请先安装: https://docs.docker.com/get-docker/"
